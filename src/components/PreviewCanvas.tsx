@@ -117,12 +117,40 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
     // 2. Draw Legacy Background if no timeline backgrounds
     if (activeItems.filter(i => i.type === 'video' || i.type === 'image').length === 0) {
         // Fallback to settings.backgrounds (compatibility)
-        const bg = settings.backgrounds[0];
+        const bg = settings.backgrounds[isExport ? 0 : activeBgIndex]; // Using activeBgIndex
         if (bg) {
           ctx.save();
-          ctx.globalAlpha = settings.backgroundOpacity / 100;
-          const el = await getMediaElement({ type: bg.type, url: bg.url });
-          if (el) ctx.drawImage(el, 0, 0, width, height);
+          ctx.globalAlpha = settings.backgroundOpacity !== undefined ? settings.backgroundOpacity / 100 : 0.6;
+          
+          if (bg.type === 'color') {
+             ctx.fillStyle = bg.url;
+             ctx.fillRect(0, 0, width, height);
+          } else {
+             const el = await getMediaElement({ type: bg.type, url: bg.url });
+             if (el) {
+                 const elWidth = bg.type === 'video' ? (el as HTMLVideoElement).videoWidth : (el as HTMLImageElement).naturalWidth;
+                 const elHeight = bg.type === 'video' ? (el as HTMLVideoElement).videoHeight : (el as HTMLImageElement).naturalHeight;
+                 if (elWidth && elHeight) {
+                     const scale = Math.max(width / elWidth, height / elHeight);
+                     const w = elWidth * scale;
+                     const h = elHeight * scale;
+                     const x = (width - w) / 2;
+                     const y = (height - h) / 2;
+                     ctx.drawImage(el, x, y, w, h);
+                 } else {
+                     ctx.drawImage(el, 0, 0, width, height);
+                 }
+                 
+                 // If it is playing and exporting, maybe scrub video time, but for legacy backgrounds we might just let it play or just use 0 during export if we don't have global sync
+             }
+          }
+          
+          ctx.restore();
+          
+          // Overlay to ensure text readability
+          ctx.save();
+          ctx.fillStyle = 'rgba(0,0,0,0.4)';
+          ctx.fillRect(0, 0, width, height);
           ctx.restore();
         }
     }
@@ -232,7 +260,7 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
     
     try {
       await document.fonts.ready;
-      if (!captureRef.current || !audioRef.current) throw new Error("Missing refs");
+      if (!audioRef.current) throw new Error("Missing refs");
 
       const width = document.body.clientWidth > 720 ? 720 : 480;
       let height = (width * 16) / 9;
@@ -343,7 +371,16 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
       if (settings.resolution === 'FHD') videoBitsPerSecond = 8000000;
       if (settings.resolution === '4K') videoBitsPerSecond = 16000000;
 
-      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond });
+      let recorder: MediaRecorder;
+      try {
+          recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond });
+      } catch (e1) {
+          try {
+              recorder = new MediaRecorder(stream, { mimeType });
+          } catch (e2) {
+              recorder = new MediaRecorder(stream);
+          }
+      }
       const chunks: BlobPart[] = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
@@ -368,30 +405,56 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
 
       recorder.start();
 
-      let exportTime = 0;
-      const totalDuration = settings.duration || (ayahs.length * 5); // Fallback
-      const frameDelay = 1 / fps;
+      let isRecording = true;
+      let ayahIdx = 0;
 
-      setIsPlaying(false); // Stop normal playback
-
-      const runExportLoop = async () => {
-         if (exportTime > totalDuration) {
-            recorder.stop();
-            return;
-         }
-
-         await renderCanvas(ctx, finalWidth, finalHeight, exportTime, true);
-         
-         exportTime += frameDelay;
-         setExportProgress(Math.floor((exportTime / totalDuration) * 100));
-         
-         // Give audio source time or just proceed if we are doing frame-by-frame capture
-         // Note: MediaRecorder with canvas stream usually records what it sees.
-         // Since we aren't using requestAnimationFrame here, we can speed it up or slow it down.
-         setTimeout(runExportLoop, 10); 
+      exportAudio.onended = () => {
+          if (settings.reciterId === 'custom') {
+              isRecording = false;
+              recorder.stop();
+          } else {
+              ayahIdx++;
+              if (ayahIdx < ayahs.length) {
+                  setCurrentAyahIndex(ayahIdx);
+                  playAudio(audioSources[ayahIdx]);
+              } else {
+                  isRecording = false;
+                  recorder.stop();
+              }
+          }
       };
 
-      runExportLoop();
+      setIsPlaying(true);
+      setCurrentAyahIndex(0);
+      playAudio(audioSources[0] || '');
+
+      let startGlobalTime = performance.now();
+      let lastAudioTime = 0;
+      let ayahCumulativeDuration = 0;
+
+      const drawFrame = async () => {
+         if (!isRecording) return;
+         
+         let globalTime = 0;
+         if (settings.reciterId === 'custom') {
+             globalTime = exportAudio.currentTime || 0;
+         } else {
+             // For standard sequential ayahs, we approximate global time by keeping track of played time
+             if (exportAudio.currentTime < lastAudioTime) {
+                 ayahCumulativeDuration += lastAudioTime;
+             }
+             lastAudioTime = exportAudio.currentTime;
+             globalTime = ayahCumulativeDuration + exportAudio.currentTime;
+         }
+
+         await renderCanvas(ctx, finalWidth, finalHeight, globalTime, true);
+         
+         setExportProgress(Math.floor((ayahIdx / ayahs.length) * 100));
+         
+         requestAnimationFrame(drawFrame);
+      };
+      
+      requestAnimationFrame(drawFrame);
 
     } catch (err) {
       console.error("Export failed", err);
@@ -600,6 +663,21 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
             </div>
         )}
       </div>
+
+       {/* Hidden Background Videos for state tracking */}
+       {settings.backgrounds.map((bg, idx) => (
+           bg.type === 'video' ? (
+              <video
+                key={`bg-${idx}`}
+                src={bg.url}
+                className="hidden"
+                muted
+                playsInline
+                autoPlay={isPlaying && activeBgIndex === idx}
+                onEnded={() => setActiveBgIndex((prev) => (prev + 1) % settings.backgrounds.length)}
+              />
+           ) : null
+       ))}
 
        {/* Hidden Audio Player */}
        <audio
