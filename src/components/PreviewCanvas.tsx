@@ -70,11 +70,10 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
       const canvas = document.createElement('canvas');
       canvas.width = finalWidth;
       canvas.height = finalHeight;
-      const ctx = canvas.getContext('2d', { alpha: false });
+      const ctx = canvas.getContext('2d', { alpha: true });
       if (!ctx) throw new Error("Canvas not supported");
       
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, finalWidth, finalHeight);
+      ctx.clearRect(0, 0, finalWidth, finalHeight);
 
       // Preload audio files as blob to avoid CORS blocking Web Audio API
       alert("جاري تحضير موارد التصدير (الصوتيات والخلفيات)... يرجى عدم إغلاق النافذة.");
@@ -180,6 +179,26 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
       let isRecording = true;
       let ayahIdx = 0;
 
+      exportAudio.ontimeupdate = () => {
+          if (!isRecording) return;
+          if (settings.reciterId === 'custom' && settings.customAudioTimestamps) {
+              const currentTime = exportAudio.currentTime;
+              const timestamps = settings.customAudioTimestamps;
+              if (timestamps && timestamps.length > 0) {
+                  let newIndex = 0;
+                  for (let i = timestamps.length - 1; i >= 0; i--) {
+                      if (currentTime >= timestamps[i]) {
+                          newIndex = i;
+                          break;
+                      }
+                  }
+                  if (newIndex !== ayahIdx && newIndex < ayahs.length) {
+                      ayahIdx = newIndex;
+                  }
+              }
+          }
+      };
+
       setIsPlaying(true);
       setCurrentAyahIndex(0);
       playAudio(audioSources[0] || '');
@@ -208,6 +227,14 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
          if (!isRecording) return;
          
          try {
+             ctx.save();
+             ctx.clearRect(0, 0, finalWidth, finalHeight);
+             if (settings.borderRadius && settings.borderRadius > 0) {
+                 ctx.beginPath();
+                 ctx.roundRect(0, 0, finalWidth, finalHeight, settings.borderRadius * pixelRatio);
+                 ctx.clip();
+             }
+
              // 1. Draw Background
              if (settings.background.type === 'color') {
                  ctx.globalAlpha = 1.0;
@@ -254,12 +281,10 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
                  ctx.textBaseline = 'middle';
                  
                  // Ayah Text
-                 const mainFontSize = finalWidth * 0.08 * (settings.fontSize / 32);
-                 const fontFamily = settings.fontFamily === 'quran' ? 'Amiri Quran' : settings.fontFamily === 'cairo' ? 'Cairo' : 'Arial';
+                 const mainFontSize = Math.round(finalWidth * 0.08 * (settings.fontSize / 32));
+                 const fontFamily = settings.fontFamily === 'quran' ? 'Amiri Quran' : settings.fontFamily === 'cairo' ? 'Cairo' : 'sans-serif';
                  
-                 // If quran font, we need to load it (which takes time), so 'Amiri Quran' should be available.
-                 // Amiri Quran does not support bold, using bold causes fallback to Arial.
-                 ctx.font = fontFamily === 'Amiri Quran' ? `${mainFontSize}px "${fontFamily}", serif` : `bold ${mainFontSize}px "${fontFamily}", serif`;
+                 ctx.font = `bold ${mainFontSize}px "${fontFamily}", serif`;
                  
                  const textWithNumber = `${currentAyah.text} ﴿${currentAyah.numberInSurah.toLocaleString('ar-EG')}﴾`;
                  wrapText(ctx, textWithNumber, finalWidth / 2, finalHeight / 2 - (finalHeight * 0.05), finalWidth * 0.8, mainFontSize * 1.5);
@@ -283,6 +308,8 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
          if (isRecording) {
              const prog = Math.floor((ayahIdx / ayahs.length) * 100);
              setExportProgress(prog);
+             ctx.restore();
+             
              requestAnimationFrame(drawFrame);
          }
       };

@@ -244,7 +244,7 @@ export default function Sidebar({ settings, setSettings, surahs, reciters, trans
           onClick={() => audioInputRef.current?.click()}
           className="flex items-center justify-center gap-2 w-full py-2 bg-gradient-to-l from-primary/20 to-primary/5 hover:from-primary/30 hover:to-primary/10 text-primary text-xs rounded-lg border border-primary/30 transition-colors shadow-sm"
         >
-          <Mic size={14} /> <span className="uppercase text-[10px] font-bold">تزامن ملف صوتي (AI)</span>
+          <Mic size={14} /> <span className="uppercase text-[10px] font-bold">تزامن ملف صوتي مخصص</span>
         </button>
       </section>
 
@@ -470,55 +470,6 @@ export default function Sidebar({ settings, setSettings, surahs, reciters, trans
         </div>
       </section>
 
-      {/* 7. إعدادات الذكاء الاصطناعي (AI) */}
-      <section className="flex flex-col gap-3">
-        <label className="text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-widest flex items-center gap-2">
-          <SettingsIcon size={14} className="text-primary"/> محرك الاستخراج الذكي
-        </label>
-
-        <div className="glass-surface border border-black/10 dark:border-white/20 p-3 rounded-lg space-y-3">
-            <div className="flex gap-2 bg-black/5 dark:bg-white/[0.08] p-1 rounded-md">
-                <button 
-                   onClick={() => setSettings(prev => ({ ...prev, aiMode: 'cloud' }))}
-                   className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-colors ${settings.aiMode === 'cloud' ? 'bg-primary text-black shadow-sm' : 'text-gray-500 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}
-                >السحابة (Cloud)</button>
-                <button 
-                   onClick={() => setSettings(prev => ({ ...prev, aiMode: 'local' }))}
-                   className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-colors ${settings.aiMode === 'local' ? 'bg-primary text-black shadow-sm' : 'text-gray-500 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}
-                >محلي (Local OS)</button>
-            </div>
-            
-            {settings.aiMode === 'local' ? (
-                <div className="text-[10px] text-amber-600 dark:text-amber-500/90 bg-amber-500/10 p-2 rounded border border-amber-500/20 leading-relaxed">
-                    يتم تشغيل نماذج <strong>مفتوحة المصدر</strong> محلياً (مثل Llama 3 و Whisper). يعتمد الأداء على قوة جهازك لضمان أعلى خصوصية.
-                </div>
-            ) : (
-                <div className="text-[10px] text-gray-600 dark:text-gray-300 bg-black/5 dark:bg-white/[0.05] p-2 rounded border border-black/5 dark:border-white/10 leading-relaxed">
-                    يستخدم خوادم سحابية لسرعة استخراج عالية. لا يتطلب جهازاً قوياً.
-                </div>
-            )}
-
-            <div>
-                <label className="text-[10px] text-gray-500 dark:text-gray-400 block mb-2 flex justify-between mt-3">
-                  <span>قوة النموذج والاستخراج</span>
-                  <span>{settings.aiModelPower}%</span>
-                </label>
-                <input 
-                    type="range" 
-                    min={0} 
-                    max={100} 
-                    value={settings.aiModelPower}
-                    onChange={(e) => setSettings(prev => ({ ...prev, aiModelPower: Number(e.target.value) }))}
-                    className="w-full accent-primary h-1 bg-black/10 dark:bg-white/20 rounded-lg appearance-none cursor-pointer"
-                />
-                <div className="flex justify-between text-[8px] text-gray-400 dark:text-gray-500 mt-1 uppercase">
-                    <span>أسرع</span>
-                    <span>أدق</span>
-                </div>
-            </div>
-        </div>
-      </section>
-      
       <div className="py-4"></div> {/* Bottom Padding spacer */}
     </div>
   );
