@@ -88,14 +88,14 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
              return URL.createObjectURL(blob);
          } catch {
              try {
-                 const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+                 const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
                  const res = await fetch(proxyUrl);
                  if (!res.ok) throw new Error("Proxy 1 failed");
                  const blob = await res.blob();
                  return URL.createObjectURL(blob);
              } catch {
                  try {
-                    const proxyUrl2 = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+                    const proxyUrl2 = `https://corsproxy.org/?${encodeURIComponent(url)}`;
                     const resProxy = await fetch(proxyUrl2);
                     if (!resProxy.ok) throw new Error("Proxy 2 failed");
                     const blobProxy = await resProxy.blob();

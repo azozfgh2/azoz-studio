@@ -55,7 +55,7 @@ export async function getAyahsData(
     result.push({
       numberInSurah: uthmaniData.ayahs[i].numberInSurah,
       text: uthmaniData.ayahs[i].text,
-      audioUrl: audioData.ayahs[i].audioSecondary?.[0] || audioData.ayahs[i].audio, // Prefer secondary if primary fails, but primary is usually fine
+      audioUrl: audioData.ayahs[i].audio || audioData.ayahs[i].audioSecondary?.[0], // Prefer primary audio as secondary often returns 404
       translationText: translationData ? translationData.ayahs[i].text : undefined
     });
   }
