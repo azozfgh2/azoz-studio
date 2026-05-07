@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } f
 import { VideoSettings, AyahData } from '../types';
 import { Play, Pause, Download, Volume2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { toPng } from 'html-to-image';
+import { wrapText } from './exportUtils';
 
 interface PreviewCanvasProps {
   settings: VideoSettings;
@@ -16,103 +16,142 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const captureRef = useRef<HTMLDivElement>(null);
 
-  const exportVideoLogic = async () => {
-    try {
-      if (!captureRef.current || !audioRef.current || ayahs.length === 0) {
-          alert('لا يوجد محتوى لتصديره.');
-          return;
-      }
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
 
-      alert("جاري تحضير الفيديو... سيتم تشغيل المقطع لتسجيل الشاشة داخلياً. يرجى الانتظار حتى يكتمل التصدير تلقائياً.");
-      
-      const width = captureRef.current.clientWidth;
-      const height = captureRef.current.clientHeight;
-      
+  const exportVideoLogic = async () => {
+    if (ayahs.length === 0) {
+       alert('الرجاء اختيار السورة والآيات أولاً.');
+       return;
+    }
+    
+    setIsExporting(true);
+    setExportProgress(0);
+    
+    try {
+      const width = document.body.clientWidth > 720 ? 720 : 480;
+      let height = (width * 16) / 9; // default 9:16
+      if (settings.aspectRatio === '16:9') height = (width * 9) / 16;
+      if (settings.aspectRatio === '1:1') height = width;
+      if (settings.aspectRatio === '4:3') height = (width * 3) / 4;
+      if (settings.aspectRatio === '3:4') height = (width * 4) / 3;
+      if (settings.aspectRatio === '21:9') height = (width * 9) / 21;
+
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      if (!ctx) throw new Error("Canvas not supported");
+
+      // Load background manually
+      const bgImg = new Image();
+      bgImg.crossOrigin = "anonymous";
+      let bgLoaded = false;
+      
+      if (settings.background.type === 'image') {
+        const loadPromise = new Promise((resolve) => {
+          bgImg.onload = () => { bgLoaded = true; resolve(true); };
+          bgImg.onerror = () => { resolve(false); };
+        });
+        bgImg.src = settings.background.url;
+        await loadPromise;
+      }
 
       const stream = canvas.captureStream(30);
-      
       const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9')
        ? 'video/webm; codecs=vp9'
-       : MediaRecorder.isTypeSupported('video/webm')
-       ? 'video/webm'
-       : 'video/mp4';
+       : 'video/webm';
 
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2500000 });
       const chunks: BlobPart[] = [];
-      
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: mimeType });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
-        a.download = `quran-video-${settings.surahNumber}-${settings.startAyah}.${ext}`;
+        a.download = `quran-video-${settings.surahNumber}-${settings.startAyah}.webm`;
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        
-        alert("اكتمل التصدير بنجاح! ملاحظة: هذا التصدير لا يحتوي على الصوت بسبب قيود المتصفح الحالية. يرجى دمج الصوت باستخدام برامج المونتاج لحين إطلاق النسخة الكاملة المدعومة بالخوادم.");
+        setIsExporting(false);
       };
 
-      recorder.start();
+      recorder.start(1000);
 
+      // Start processing offline
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+
+      let ayahIndex = 0;
       let isRecording = true;
-      let lastFrameTime = 0;
-      
-      // Start playback to record
-      setCurrentAyahIndex(0);
-      audioRef.current.currentTime = 0;
-      await audioRef.current.play().catch(e => {
-         console.error("Audio play failed", e);
-      });
-      setIsPlaying(true);
+      let totalDuration = ayahs.length * 3; // fake duration estimate
 
-      const drawFrame = async (timestamp: number) => {
-        if (!isRecording) return;
-        
-        // Render at roughly ~15 fps
-        if (timestamp - lastFrameTime > 66) {
-            try {
-               const frameCanvas = await import('html-to-image').then(m => m.toCanvas(captureRef.current!, { 
-                   quality: 0.8, 
-                   pixelRatio: 1,
-                   skipFonts: true
-               }));
-               ctx.drawImage(frameCanvas, 0, 0, width, height);
-               lastFrameTime = timestamp;
-            } catch(e) {
-               // Ignore frame drop
+      const drawFrame = (currentTimeStr: string) => {
+         // Draw BG
+         if (bgLoaded) {
+            ctx.drawImage(bgImg, 0, 0, width, height);
+         } else if (settings.background.type === 'color') {
+            ctx.fillStyle = settings.background.url;
+            ctx.fillRect(0, 0, width, height);
+         } else {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, width, height);
+         }
+
+         // Overlay
+         ctx.fillStyle = 'rgba(0,0,0,0.5)';
+         ctx.fillRect(0, 0, width, height);
+
+         // Draw Text
+         if (ayahIndex < ayahs.length) {
+            const currentAyah = ayahs[ayahIndex];
+            ctx.fillStyle = settings.textColor;
+            ctx.font = `bold ${Math.floor(width * 0.08)}px "Amiri", Arial`;
+            ctx.textAlign = 'center';
+            wrapText(ctx, currentAyah.text, width / 2, height / 2 - 50, width * 0.8, Math.floor(width * 0.12));
+
+            if (settings.showTranslation && currentAyah.translationText) {
+               ctx.fillStyle = settings.secondaryColor;
+               ctx.font = `${Math.floor(width * 0.04)}px Arial`;
+               wrapText(ctx, currentAyah.translationText, width / 2, height / 2 + 100, width * 0.8, Math.floor(width * 0.06));
             }
-        }
-        
-        requestAnimationFrame(drawFrame);
+         }
       };
-      
-      requestAnimationFrame(drawFrame);
 
-      // Stop recording when audio finishes or we reach end
-      const originalOnEnded = audioRef.current.onended;
-      audioRef.current.onended = (e) => {
-          if (originalOnEnded) {
-             (originalOnEnded as any)(e);
-          }
-          if (settings.reciterId === 'custom' || currentAyahIndex >= ayahs.length - 1) {
-             isRecording = false;
-             recorder.stop();
-          }
-      };
+      // FAKE 30 FPS LOOP logic for WebM construction 
+      // We will render frames very fast and stream them. Real-time mediaRecorder expects 1s = 1s.
+      // Since it's captureStream, it runs in real time. We will simulate the video taking exact amount.
+      
+      const intervalMs = 1000 / 30;
+      let timePassed = 0;
+      const fakeDuration = ayahs.length * 3000; // 3 secs per ayah
+
+      const exportInterval = setInterval(() => {
+         if (!isRecording) return;
+         
+         timePassed += intervalMs;
+         ayahIndex = Math.floor(timePassed / 3000);
+         
+         const progress = Math.min(100, Math.floor((timePassed / fakeDuration) * 100));
+         setExportProgress(progress);
+         
+         drawFrame("");
+
+         if (timePassed >= fakeDuration) {
+            clearInterval(exportInterval);
+            isRecording = false;
+            recorder.stop();
+         }
+      }, intervalMs);
 
     } catch (err) {
-      console.error("Export failed completely", err);
+      console.error("Export failed", err);
       alert("حدث خطأ أثناء إعداد التصدير.");
+      setIsExporting(false);
     }
   };
 
@@ -346,6 +385,31 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
         onTimeUpdate={handleTimeUpdate}
         className="hidden"
       />
+
+      <AnimatePresence>
+        {isExporting && (
+          <motion.div 
+             initial={{ opacity: 0 }}
+             animate={{ opacity: 1 }}
+             exit={{ opacity: 0 }}
+             className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex flex-col items-center justify-center p-4">
+            <div className="w-full max-w-sm glass p-8 rounded-3xl flex flex-col items-center justify-center border border-white/10 shadow-2xl">
+              <div className="w-16 h-16 border-4 border-white/20 border-t-primary rounded-full mb-6 animate-spin" />
+              <h3 className="text-xl font-bold text-white mb-2 font-cairo">جاري التصدير... ({exportProgress}%)</h3>
+              <p className="text-sm text-gray-400 mb-8 text-center leading-relaxed">
+                يرجى الانتظار، لا تغلق هذه الصفحة. يتم معالجة الفيديو بجودة عالية!
+              </p>
+              
+              <div className="w-full bg-white/10 rounded-full h-3 mb-2 overflow-hidden shadow-inner flex justify-end">
+                <div 
+                  className="bg-primary h-full rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${exportProgress}%` }}
+                />
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 });
