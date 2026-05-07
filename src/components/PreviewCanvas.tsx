@@ -23,7 +23,7 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
           return;
       }
 
-      alert("بدأ تحضير الفيديو (بدون مشاركة شاشة)... قد يستغرق التصدير بعض الوقت. يرجى الانتظار واختبار المعاينة أثناء التسجيل.");
+      alert("جاري تحضير الفيديو... سيتم تشغيل المقطع لتسجيل الشاشة داخلياً. يرجى الانتظار حتى يكتمل التصدير تلقائياً.");
       
       const width = captureRef.current.clientWidth;
       const height = captureRef.current.clientHeight;
@@ -36,40 +36,13 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
 
       const stream = canvas.captureStream(30);
       
-      // Setup audio capture
-      let combinedStream = stream;
-      try {
-        // We try to capture audio from the element
-        // Note: For this to work with cross-origin, audio needs crossOrigin="anonymous"
-        audioRef.current.crossOrigin = "anonymous";
-        
-        // We use a new AudioContext
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const dest = audioCtx.createMediaStreamDestination();
-        
-        // Create source if not already created (can only create once per element)
-        if (!(audioRef.current as any).sourceNode) {
-            (audioRef.current as any).sourceNode = audioCtx.createMediaElementSource(audioRef.current);
-            (audioRef.current as any).sourceNode.connect(audioCtx.destination); // Connect to speakers
-        }
-        (audioRef.current as any).sourceNode.connect(dest); // Connect to recorder
-
-        // Combine video and audio
-        const audioTracks = dest.stream.getAudioTracks();
-        if (audioTracks.length > 0) {
-            combinedStream = new MediaStream([ ...stream.getVideoTracks(), ...audioTracks ]);
-        }
-      } catch (audioErr) {
-        console.warn("Could not capture audio natively due to CORS/API limits, video might have no audio.", audioErr);
-      }
-
       const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9')
        ? 'video/webm; codecs=vp9'
        : MediaRecorder.isTypeSupported('video/webm')
        ? 'video/webm'
        : 'video/mp4';
 
-      const recorder = new MediaRecorder(combinedStream, { mimeType });
+      const recorder = new MediaRecorder(stream, { mimeType });
       const chunks: BlobPart[] = [];
       
       recorder.ondataavailable = (e) => {
@@ -86,7 +59,7 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
         a.click();
         URL.revokeObjectURL(url);
         
-        alert("اكتمل التصدير!");
+        alert("اكتمل التصدير بنجاح! ملاحظة: هذا التصدير لا يحتوي على الصوت بسبب قيود المتصفح الحالية. يرجى دمج الصوت باستخدام برامج المونتاج لحين إطلاق النسخة الكاملة المدعومة بالخوادم.");
       };
 
       recorder.start();
@@ -99,30 +72,24 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
       audioRef.current.currentTime = 0;
       await audioRef.current.play().catch(e => {
          console.error("Audio play failed", e);
-         alert("فشل تشغيل الصوت للتسجيل");
-         isRecording = false;
-         recorder.stop();
       });
       setIsPlaying(true);
 
       const drawFrame = async (timestamp: number) => {
         if (!isRecording) return;
         
-        // Throttle to ~15-20 frames per second to avoid freezing the browser
-        if (timestamp - lastFrameTime > 50) {
+        // Render at roughly ~15 fps
+        if (timestamp - lastFrameTime > 66) {
             try {
-               // We only paint the DOM to the hidden canvas
-               // Since html-to-image can be heavy, we use it directly on the wrapper
-               // Using import { toCanvas } instead of toPng to get raw pixels
                const frameCanvas = await import('html-to-image').then(m => m.toCanvas(captureRef.current!, { 
                    quality: 0.8, 
                    pixelRatio: 1,
-                   skipFonts: true // speed up
+                   skipFonts: true
                }));
                ctx.drawImage(frameCanvas, 0, 0, width, height);
                lastFrameTime = timestamp;
             } catch(e) {
-               console.warn("Frame drop", e);
+               // Ignore frame drop
             }
         }
         
@@ -314,10 +281,10 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
             <div className="w-full h-full" style={{ backgroundColor: settings.background.url }} />
           )}
           {settings.background.type === 'image' && (
-             <img crossOrigin="anonymous" src={settings.background.url} alt="bg" className="w-full h-full object-cover opacity-60" />
+             <img src={settings.background.url} alt="bg" className="w-full h-full object-cover opacity-60" />
           )}
           {settings.background.type === 'video' && (
-            <video crossOrigin="anonymous" src={settings.background.url} autoPlay loop muted className="w-full h-full object-cover opacity-60" />
+            <video src={settings.background.url} autoPlay loop muted className="w-full h-full object-cover opacity-60" />
           )}
           {/* Overlay to ensure text readability */}
           <div className="absolute inset-0 bg-black/40 mix-blend-multiply" />
@@ -375,7 +342,6 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
        {/* Hidden Audio Player */}
        <audio
         ref={audioRef}
-        crossOrigin="anonymous"
         onEnded={handleAudioEnded}
         onTimeUpdate={handleTimeUpdate}
         className="hidden"
