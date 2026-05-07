@@ -16,27 +16,50 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const captureRef = useRef<HTMLDivElement>(null);
 
-  useImperativeHandle(ref, () => ({
-    exportVideo: async () => {
-      if (!captureRef.current) return;
-      try {
-        const dataUrl = await toPng(captureRef.current, {
-          quality: 1,
-          pixelRatio: 2,
-          filter: (node) => {
-            // Filter out any elements we don't want or handle specific exceptions
-            return true;
-          }
-        });
-        const link = document.createElement('a');
-        link.download = `quran-video-frame-${settings.surahNumber}-${settings.startAyah}.png`;
-        link.href = dataUrl;
-        link.click();
-      } catch (err) {
-        console.error("Export failed", err);
-        alert("فشل التصدير بسبب محتوى خارجي (CORS). يرجى تغيير الخلفية أو المحاولة مرة أخرى.");
-      }
+  const exportVideoLogic = async () => {
+    try {
+      // @ts-ignore
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: "browser" },
+        audio: true,
+        preferCurrentTab: true,
+      });
+      
+      const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9')
+       ? 'video/webm; codecs=vp9'
+       : MediaRecorder.isTypeSupported('video/webm')
+       ? 'video/webm'
+       : 'video/mp4';
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      const chunks: BlobPart[] = [];
+      
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+        a.download = `quran-video-${settings.surahNumber}-${settings.startAyah}.${ext}`;
+        a.click();
+        URL.revokeObjectURL(url);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      recorder.start();
+      alert("بدأ التسجيل! قم بتشغيل المقطع للبدء.\nأوقف مشاركة الشاشة من المتصفح عند الانتهاء ليتم تحميل الفيديو تلقائياً.");
+    } catch (err) {
+      console.error("Export failed", err);
+      alert("تعذر تسجيل الشاشة. قد يكون المتصفح لا يدعم هذه الميزة أو تم الإلغاء.");
     }
+  };
+
+  useImperativeHandle(ref, () => ({
+    exportVideo: exportVideoLogic
   }));
 
   // Aspect Ratio Dimensions calculation
@@ -176,26 +199,8 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
             </button>
             <button 
                 className="flex items-center gap-2 glass-btn px-4 py-2 rounded-lg font-bold transition-colors text-xs"
-                onClick={async () => {
-                  if (ref && 'current' in ref && ref.current) {
-                    ref.current.exportVideo();
-                  } else {
-                    // Fallback to internal call
-                    if (!captureRef.current) return;
-                    try {
-                      const dataUrl = await toPng(captureRef.current, { quality: 1, pixelRatio: 2 });
-                      const link = document.createElement('a');
-                      link.download = `quran-video-frame-${settings.surahNumber}-${settings.startAyah}.png`;
-                      link.href = dataUrl;
-                      link.click();
-                      alert('ملاحظة: هذا تصدير لصورة (Frame) من الفيديو. التصدير الفعلي للفيديو غير مدعوم بالكامل في المتصفح.');
-                    } catch (err) {
-                      console.error("Export failed", err);
-                      alert("فشل التصدير بسبب محتوى خارجي (CORS). يرجى تغيير الخلفية أو المحاولة مرة أخرى.");
-                    }
-                  }
-                }}
-                title="تصدير كصورة (إطار)"
+                onClick={exportVideoLogic}
+                title="تصدير كفيديو"
                 >
                 <Download size={14} />
                 تصدير
