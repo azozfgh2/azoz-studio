@@ -29,128 +29,189 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
     setExportProgress(0);
     
     try {
+      if (!captureRef.current || !audioRef.current) throw new Error("Missing refs");
+
       const width = document.body.clientWidth > 720 ? 720 : 480;
-      let height = (width * 16) / 9; // default 9:16
+      let height = (width * 16) / 9;
       if (settings.aspectRatio === '16:9') height = (width * 9) / 16;
       if (settings.aspectRatio === '1:1') height = width;
       if (settings.aspectRatio === '4:3') height = (width * 3) / 4;
       if (settings.aspectRatio === '3:4') height = (width * 4) / 3;
       if (settings.aspectRatio === '21:9') height = (width * 9) / 21;
 
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error("Canvas not supported");
-
-      // Load background manually
-      const bgImg = new Image();
-      bgImg.crossOrigin = "anonymous";
-      let bgLoaded = false;
+      // Determine pixel ratio for desired resolution
+      // Target widths: SD=480, HD=720, FHD=1080, 4K=2160
+      let targetResWidth = 720;
+      if (settings.resolution === 'SD') targetResWidth = 480;
+      if (settings.resolution === 'FHD') targetResWidth = 1080;
+      if (settings.resolution === '4K') targetResWidth = 2160;
       
-      if (settings.background.type === 'image') {
-        const loadPromise = new Promise((resolve) => {
-          bgImg.onload = () => { bgLoaded = true; resolve(true); };
-          bgImg.onerror = () => { resolve(false); };
-        });
-        bgImg.src = settings.background.url;
-        await loadPromise;
+      const pixelRatio = targetResWidth / width;
+      const finalWidth = width * pixelRatio;
+      const finalHeight = height * pixelRatio;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = finalWidth;
+      canvas.height = finalHeight;
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (!ctx) throw new Error("Canvas not supported");
+      
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, finalWidth, finalHeight);
+
+      // Preload audio files as blob to avoid CORS blocking Web Audio API
+      alert("جاري تحضير موارد التصدير (الصوتيات والخلفيات)... يرجى عدم إغلاق النافذة.");
+      
+      let audioSources: string[] = [];
+      if (settings.reciterId === 'custom' && settings.customAudioUrl) {
+         try {
+             const res = await fetch(settings.customAudioUrl);
+             const blob = await res.blob();
+             audioSources.push(URL.createObjectURL(blob));
+         } catch {
+             audioSources.push(settings.customAudioUrl);
+         }
+      } else {
+         for (const ayah of ayahs) {
+            try {
+               const res = await fetch(ayah.audioUrl);
+               const blob = await res.blob();
+               audioSources.push(URL.createObjectURL(blob));
+            } catch {
+               audioSources.push(ayah.audioUrl);
+            }
+         }
+      }
+
+      // Configure Web Audio API
+      audioRef.current.crossOrigin = "anonymous";
+      let audioCtx: AudioContext | null = null;
+      let dest: MediaStreamAudioDestinationNode | null = null;
+      try {
+         audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+         dest = audioCtx.createMediaStreamDestination();
+         if (!(audioRef.current as any).sourceNode) {
+             (audioRef.current as any).sourceNode = audioCtx.createMediaElementSource(audioRef.current);
+             (audioRef.current as any).sourceNode.connect(audioCtx.destination);
+         }
+         (audioRef.current as any).sourceNode.connect(dest);
+      } catch (e) {
+         console.warn("Could not capture audio natively", e);
       }
 
       const stream = canvas.captureStream(30);
+      if (dest) {
+         const audioTracks = dest.stream.getAudioTracks();
+         if (audioTracks.length > 0) stream.addTrack(audioTracks[0]);
+      }
+
       const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9')
        ? 'video/webm; codecs=vp9'
-       : 'video/webm';
+       : MediaRecorder.isTypeSupported('video/webm')
+       ? 'video/webm'
+       : 'video/mp4';
 
-      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2500000 });
+      let videoBitsPerSecond = 2500000;
+      if (settings.resolution === '4K') videoBitsPerSecond = 8000000;
+      if (settings.resolution === 'FHD') videoBitsPerSecond = 5000000;
+
+      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond });
       const chunks: BlobPart[] = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
       recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: mimeType });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `quran-video-${settings.surahNumber}-${settings.startAyah}.webm`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        setIsExporting(false);
+         const blob = new Blob(chunks, { type: mimeType });
+         const url = URL.createObjectURL(blob);
+         const a = document.createElement("a");
+         a.href = url;
+         a.download = `quran-video-${settings.surahNumber}-${settings.startAyah}.${mimeType.includes('mp4') ? 'mp4' : 'webm'}`;
+         document.body.appendChild(a);
+         a.click();
+         document.body.removeChild(a);
+         URL.revokeObjectURL(url);
+         
+         // Clean up blobs
+         audioSources.forEach(src => {
+             if (src.startsWith('blob:')) URL.revokeObjectURL(src);
+         });
+         
+         setIsExporting(false);
+         alert("✅ اكتمل التصدير بنجاح!");
       };
 
-      recorder.start(1000);
+      recorder.start();
 
-      // Start processing offline
-      if (audioRef.current) {
-        audioRef.current.pause();
+      let isRecording = true;
+      let ayahIdx = 0;
+
+      // Start playback
+      setIsPlaying(true);
+      setCurrentAyahIndex(0);
+      audioRef.current.src = audioSources[0] || '';
+      
+      const playPromise = audioRef.current.play();
+      if (playPromise) {
+          playPromise.catch(e => {
+              console.error("Audio play failed in export", e);
+              alert("تعذر تشغيل الصوت للتسجيل");
+              isRecording = false;
+              recorder.stop();
+          });
       }
 
-      let ayahIndex = 0;
-      let isRecording = true;
-      let totalDuration = ayahs.length * 3; // fake duration estimate
-
-      const drawFrame = (currentTimeStr: string) => {
-         // Draw BG
-         if (bgLoaded) {
-            ctx.drawImage(bgImg, 0, 0, width, height);
-         } else if (settings.background.type === 'color') {
-            ctx.fillStyle = settings.background.url;
-            ctx.fillRect(0, 0, width, height);
-         } else {
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(0, 0, width, height);
-         }
-
-         // Overlay
-         ctx.fillStyle = 'rgba(0,0,0,0.5)';
-         ctx.fillRect(0, 0, width, height);
-
-         // Draw Text
-         if (ayahIndex < ayahs.length) {
-            const currentAyah = ayahs[ayahIndex];
-            ctx.fillStyle = settings.textColor;
-            ctx.font = `bold ${Math.floor(width * 0.08)}px "Amiri", Arial`;
-            ctx.textAlign = 'center';
-            wrapText(ctx, currentAyah.text, width / 2, height / 2 - 50, width * 0.8, Math.floor(width * 0.12));
-
-            if (settings.showTranslation && currentAyah.translationText) {
-               ctx.fillStyle = settings.secondaryColor;
-               ctx.font = `${Math.floor(width * 0.04)}px Arial`;
-               wrapText(ctx, currentAyah.translationText, width / 2, height / 2 + 100, width * 0.8, Math.floor(width * 0.06));
-            }
-         }
+      // To know when we should stop, we override the audio ended handler locally
+      const oldOnEnded = audioRef.current.onended;
+      audioRef.current.onended = (e) => {
+          if (settings.reciterId === 'custom') {
+              isRecording = false;
+              recorder.stop();
+          } else {
+              ayahIdx++;
+              if (ayahIdx < ayahs.length) {
+                  setCurrentAyahIndex(ayahIdx);
+                  if (audioRef.current) {
+                      audioRef.current.src = audioSources[ayahIdx];
+                      audioRef.current.play().catch(() => {});
+                  }
+              } else {
+                  isRecording = false;
+                  recorder.stop();
+              }
+          }
+          if (oldOnEnded) (oldOnEnded as any)(e);
       };
 
-      // FAKE 30 FPS LOOP logic for WebM construction 
-      // We will render frames very fast and stream them. Real-time mediaRecorder expects 1s = 1s.
-      // Since it's captureStream, it runs in real time. We will simulate the video taking exact amount.
+      const module = await import('html-to-image');
       
-      const intervalMs = 1000 / 30;
-      let timePassed = 0;
-      const fakeDuration = ayahs.length * 3000; // 3 secs per ayah
-
-      const exportInterval = setInterval(() => {
+      const drawFrame = async () => {
          if (!isRecording) return;
          
-         timePassed += intervalMs;
-         ayahIndex = Math.floor(timePassed / 3000);
-         
-         const progress = Math.min(100, Math.floor((timePassed / fakeDuration) * 100));
-         setExportProgress(progress);
-         
-         drawFrame("");
-
-         if (timePassed >= fakeDuration) {
-            clearInterval(exportInterval);
-            isRecording = false;
-            recorder.stop();
+         try {
+             // html-to-image toCanvas recreates the DOM exactly as seen
+             const frameCanvas = await module.toCanvas(captureRef.current!, { 
+                 quality: 1.0, 
+                 pixelRatio: pixelRatio,
+                 backgroundColor: '#000',
+                 skipFonts: false
+             });
+             ctx.drawImage(frameCanvas, 0, 0, finalWidth, finalHeight);
+         } catch(e) {
+             // Ignore frame drop
          }
-      }, intervalMs);
+         
+         if (isRecording) {
+             // Calculate rough progress based on ayah index
+             const prog = Math.floor((ayahIdx / ayahs.length) * 100);
+             setExportProgress(prog);
+             requestAnimationFrame(drawFrame);
+         }
+      };
+      
+      requestAnimationFrame(drawFrame);
 
     } catch (err) {
       console.error("Export failed", err);
-      alert("حدث خطأ أثناء إعداد التصدير.");
+      alert("حدث خطأ أثناء إعداد التصدير. قد تكون دقة الفيديو عالية جداً على متصفحك.");
       setIsExporting(false);
     }
   };
