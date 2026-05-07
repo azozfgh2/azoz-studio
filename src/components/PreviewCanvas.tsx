@@ -8,6 +8,10 @@ interface PreviewCanvasProps {
   settings: VideoSettings;
   ayahs: AyahData[];
   isLoading: boolean;
+  currentTime: number;
+  setCurrentTime: (time: number) => void;
+  isPlaying: boolean;
+  setIsPlaying: (playing: boolean) => void;
 }
 
 const getDisplayChunk = (text: string, wordsPerScreen: number, currentTime: number, duration: number) => {
@@ -27,16 +31,179 @@ const getDisplayChunk = (text: string, wordsPerScreen: number, currentTime: numb
     return chunks[chunkIndex];
 };
 
-const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps>(({ settings, ayahs, isLoading }, ref) => {
-  const [isPlaying, setIsPlaying] = useState(false);
+const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps>(({ 
+  settings, 
+  ayahs, 
+  isLoading, 
+  currentTime, 
+  setCurrentTime, 
+  isPlaying, 
+  setIsPlaying 
+}, ref) => {
   const [currentAyahIndex, setCurrentAyahIndex] = useState(0);
   const [activeBgIndex, setActiveBgIndex] = useState(0);
-  const [audioState, setAudioState] = useState({ currentTime: 0, duration: 1 });
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const captureRef = useRef<HTMLDivElement>(null);
+  const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const imageElementsRef = useRef<Map<string, HTMLImageElement>>(new Map());
 
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
+
+  const canvasRefUI = useRef<HTMLCanvasElement>(null);
+
+  // Helper to get or create media element
+  const getMediaElement = async (item: any): Promise<HTMLVideoElement | HTMLImageElement | null> => {
+    if (item.type === 'video') {
+      if (videoElementsRef.current.has(item.url)) return videoElementsRef.current.get(item.url)!;
+      const v = document.createElement('video');
+      v.src = item.url;
+      v.crossOrigin = "anonymous";
+      v.load();
+      videoElementsRef.current.set(item.url, v);
+      return v;
+    } else if (item.type === 'image') {
+      if (imageElementsRef.current.has(item.url)) return imageElementsRef.current.get(item.url)!;
+      const img = new Image();
+      img.src = item.url;
+      img.crossOrigin = "anonymous";
+      imageElementsRef.current.set(item.url, img);
+      return new Promise((res) => { img.onload = () => res(img); img.onerror = () => res(null); });
+    }
+    return null;
+  };
+
+  const renderCanvas = async (ctx: CanvasRenderingContext2D, width: number, height: number, time: number, isExport: boolean) => {
+    const pixelRatio = isExport ? (width / (canvasRefUI.current?.clientWidth || width)) : 1;
+    
+    ctx.clearRect(0, 0, width, height);
+
+    // Filter and sort items to draw
+    const activeItems = (settings.items || [])
+      .filter(item => time >= item.startTime && time <= (item.startTime + item.duration))
+      .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+
+    // 1. Draw Timeline Items
+    for (const item of activeItems) {
+      ctx.save();
+      ctx.globalAlpha = (item.opacity || 100) / 100;
+      
+      const x = (item.x / 100) * width;
+      const y = (item.y / 100) * height;
+      const w = (item.width / 100) * width;
+      const h = (item.height / 100) * height;
+
+      if (item.type === 'video' || item.type === 'image') {
+        const el = await getMediaElement(item);
+        if (el) {
+          if (item.type === 'video') {
+            const v = el as HTMLVideoElement;
+            v.currentTime = time - item.startTime;
+          }
+          ctx.translate(x + w / 2, y + h / 2);
+          ctx.rotate((item.rotation || 0) * Math.PI / 180);
+          ctx.scale(item.scale || 1, item.scale || 1);
+          ctx.drawImage(el, -w / 2, -h / 2, w, h);
+        }
+      } else if (item.type === 'text') {
+        ctx.fillStyle = settings.textColor;
+        ctx.font = `${(settings.fontSize / 100) * width}px Cairo`;
+        ctx.textAlign = 'center';
+        ctx.fillText(item.url, x, y);
+      }
+      ctx.restore();
+    }
+
+    // 2. Draw Legacy Background if no timeline backgrounds
+    if (activeItems.filter(i => i.type === 'video' || i.type === 'image').length === 0) {
+        // Fallback to settings.backgrounds (compatibility)
+        const bg = settings.backgrounds[0];
+        if (bg) {
+          ctx.save();
+          ctx.globalAlpha = settings.backgroundOpacity / 100;
+          const el = await getMediaElement({ type: bg.type, url: bg.url });
+          if (el) ctx.drawImage(el, 0, 0, width, height);
+          ctx.restore();
+        }
+    }
+
+    // 3. Draw Quran Overlay (Default UI)
+    if (ayahs.length > 0) {
+       ctx.save();
+       // Find current ayah and current timing info
+       let localAyahIdx = currentAyahIndex;
+       if (settings.reciterId === 'custom' && settings.customAudioTimestamps) {
+          const idx = settings.customAudioTimestamps.findIndex((t, i) => time >= t && (i === settings.customAudioTimestamps.length - 1 || time < settings.customAudioTimestamps[i+1]));
+          if (idx !== -1) localAyahIdx = idx;
+       }
+       
+       const ayahToDraw = ayahs[localAyahIdx];
+       if (ayahToDraw) {
+          const audioDuration = audioRef.current?.duration || 1;
+          let ayahDuration = audioDuration;
+          let ayahCurrentTime = time;
+          
+          if (settings.reciterId === 'custom' && settings.customAudioTimestamps) {
+              const start = settings.customAudioTimestamps[localAyahIdx] || 0;
+              const end = settings.customAudioTimestamps[localAyahIdx + 1] || audioDuration || start + 1;
+              ayahDuration = end - start;
+              ayahCurrentTime = time - start;
+          }
+
+          ctx.fillStyle = settings.textColor;
+          ctx.globalAlpha = settings.textOpacity / 100;
+          ctx.shadowColor = settings.textShadowColor;
+          ctx.shadowBlur = settings.textShadowBlur;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          
+          const fontSize = (settings.fontSize / 40) * (width * 0.08);
+          const fontFamily = settings.fontFamily === 'quran' ? 'Amiri Quran' : settings.fontFamily === 'cairo' ? 'Cairo' : 'sans-serif';
+          ctx.font = `bold ${fontSize}px "${fontFamily}", serif`;
+          
+          let text = ayahToDraw.text;
+          if (settings.wordsPerScreen > 0) {
+             text = getDisplayChunk(text, settings.wordsPerScreen, ayahCurrentTime, Math.max(0.1, ayahDuration));
+          }
+          
+          // Add Ayah Number indicator
+          const fullText = `${text} ﴿${ayahToDraw.numberInSurah.toLocaleString('ar-EG')}﴾`;
+          
+          wrapText(ctx, fullText, width / 2, height / 2 - (height * 0.05), width * 0.8, fontSize * 1.5);
+          
+          // Translation
+          if (settings.showTranslation && ayahToDraw.translationText) {
+             const transSize = fontSize * 0.5;
+             ctx.font = `bold ${transSize}px "Cairo", sans-serif`;
+             ctx.globalAlpha = (settings.textOpacity / 100) * 0.8;
+             let transText = ayahToDraw.translationText;
+             if (settings.wordsPerScreen > 0) {
+                 transText = getDisplayChunk(transText, settings.wordsPerScreen * 2, ayahCurrentTime, Math.max(0.1, ayahDuration));
+             }
+             wrapText(ctx, transText, width / 2, height / 2 + (height * 0.15), width * 0.8, transSize * 1.5);
+          }
+       }
+       ctx.restore();
+    }
+  };
+
+  useEffect(() => {
+    const canvas = canvasRefUI.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let rafId: number;
+    const loop = async () => {
+      await renderCanvas(ctx, canvas.width, canvas.height, currentTime, false);
+      if (isPlaying) {
+         // This is a simple mock, real sync with audio happens in handleTimeUpdate
+      }
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
+  }, [currentTime, settings, ayahs, currentAyahIndex, isPlaying]);
 
   const exportVideoLogic = async () => {
     if (ayahs.length === 0) {
@@ -185,7 +352,7 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
          const url = URL.createObjectURL(blob);
          const a = document.createElement("a");
          a.href = url;
-         a.download = `quran-video-${settings.surahNumber}-${settings.startAyah}.${mimeType.includes('mp4') ? 'mp4' : 'webm'}`;
+         a.download = `azoz-project-${Date.now()}.${mimeType.includes('mp4') ? 'mp4' : 'webm'}`;
          document.body.appendChild(a);
          a.click();
          document.body.removeChild(a);
@@ -201,160 +368,30 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
 
       recorder.start();
 
-      let isRecording = true;
-      let ayahIdx = 0;
+      let exportTime = 0;
+      const totalDuration = settings.duration || (ayahs.length * 5); // Fallback
+      const frameDelay = 1 / fps;
 
-      exportAudio.ontimeupdate = () => {
-          if (!isRecording) return;
-          if (settings.reciterId === 'custom' && settings.customAudioTimestamps) {
-              const currentTime = exportAudio.currentTime;
-              const timestamps = settings.customAudioTimestamps;
-              if (timestamps && timestamps.length > 0) {
-                  let newIndex = 0;
-                  for (let i = timestamps.length - 1; i >= 0; i--) {
-                      if (currentTime >= timestamps[i]) {
-                          newIndex = i;
-                          break;
-                      }
-                  }
-                  if (newIndex !== ayahIdx && newIndex < ayahs.length) {
-                      ayahIdx = newIndex;
-                  }
-              }
-          }
-      };
+      setIsPlaying(false); // Stop normal playback
 
-      setIsPlaying(true);
-      setCurrentAyahIndex(0);
-      playAudio(audioSources[0] || '');
-
-      exportAudio.onended = () => {
-          if (settings.reciterId === 'custom') {
-              isRecording = false;
-              recorder.stop();
-          } else {
-              ayahIdx++;
-              if (ayahIdx < ayahs.length) {
-                  setCurrentAyahIndex(ayahIdx);
-                  playAudio(audioSources[ayahIdx]);
-              } else {
-                  isRecording = false;
-                  recorder.stop();
-              }
-          }
-      };
-
-      const drawFrame = async () => {
-         if (!isRecording) return;
-         const currentBgImgEl = captureRef.current?.querySelector('img') as HTMLImageElement;
-         const currentBgVideoEl = captureRef.current?.querySelector('video') as HTMLVideoElement;
-         
-         try {
-             ctx.save();
-             ctx.clearRect(0, 0, finalWidth, finalHeight);
-             if (settings.borderRadius && settings.borderRadius > 0) {
-                 ctx.beginPath();
-                 ctx.roundRect(0, 0, finalWidth, finalHeight, settings.borderRadius * pixelRatio);
-                 ctx.clip();
-             }
-
-             // 1. Draw Background
-             const bgOpacity = settings.backgroundOpacity !== undefined ? settings.backgroundOpacity / 100 : 0.6;
-             if (settings.backgrounds[activeBgIndex]?.type === 'color') {
-                 ctx.globalAlpha = bgOpacity;
-                 ctx.fillStyle = settings.backgrounds[activeBgIndex].url;
-                 ctx.fillRect(0, 0, finalWidth, finalHeight);
-                 ctx.globalAlpha = 1.0;
-             } else if (settings.backgrounds[activeBgIndex]?.type === 'image' && currentBgImgEl) {
-                 ctx.globalAlpha = bgOpacity;
-                 const scale = Math.max(finalWidth / currentBgImgEl.naturalWidth, finalHeight / currentBgImgEl.naturalHeight);
-                 const w = currentBgImgEl.naturalWidth * scale;
-                 const h = currentBgImgEl.naturalHeight * scale;
-                 const x = (finalWidth - w) / 2;
-                 const y = (finalHeight - h) / 2;
-                 ctx.drawImage(currentBgImgEl, x, y, w, h);
-                 ctx.globalAlpha = 1.0;
-             } else if (settings.backgrounds[activeBgIndex]?.type === 'video' && currentBgVideoEl) {
-                 ctx.globalAlpha = bgOpacity;
-                 const scale = Math.max(finalWidth / currentBgVideoEl.videoWidth, finalHeight / currentBgVideoEl.videoHeight);
-                 const w = currentBgVideoEl.videoWidth * scale;
-                 const h = currentBgVideoEl.videoHeight * scale;
-                 const x = (finalWidth - w) / 2;
-                 const y = (finalHeight - h) / 2;
-                 ctx.drawImage(currentBgVideoEl, x, y, w, h);
-                 ctx.globalAlpha = 1.0;
-             } else {
-                 ctx.globalAlpha = 1.0;
-                 ctx.fillStyle = '#000';
-                 ctx.fillRect(0, 0, finalWidth, finalHeight);
-             }
-             
-             // 2. Draw Overlay
-             ctx.globalAlpha = 1;
-             ctx.fillStyle = 'rgba(0,0,0,0.4)';
-             ctx.fillRect(0, 0, finalWidth, finalHeight);
-             
-             // 3. Draw Text
-             if (ayahIdx < ayahs.length) {
-                 const currentAyah = ayahs[ayahIdx];
-                 
-                 ctx.globalAlpha = settings.textOpacity / 100;
-                 ctx.shadowColor = settings.textShadowColor;
-                 ctx.shadowBlur = settings.textShadowBlur * pixelRatio; // reduced blur slightly
-                 ctx.fillStyle = settings.textColor;
-                 ctx.textAlign = 'center';
-                 ctx.textBaseline = 'middle';
-                 ctx.direction = 'rtl';
-                 
-                 // Ayah Text
-                 const mainFontSize = Math.round(finalWidth * 0.08 * (settings.fontSize / 32));
-                 const fontFamily = settings.fontFamily === 'quran' ? 'Amiri Quran' : settings.fontFamily === 'cairo' ? 'Cairo' : 'sans-serif';
-                 
-                 ctx.font = `bold ${mainFontSize}px "${fontFamily}", serif`;
-                 
-                 const textWithNumber = `${currentAyah.text} ﴿${currentAyah.numberInSurah.toLocaleString('ar-EG')}﴾`;
-                 
-                 let ayahDuration = exportAudio.duration || 1;
-                 let ayahCurrentTime = exportAudio.currentTime || 0;
-                 
-                 if (settings.reciterId === 'custom' && settings.customAudioTimestamps) {
-                     const start = settings.customAudioTimestamps[ayahIdx] || 0;
-                     const end = settings.customAudioTimestamps[ayahIdx + 1] || exportAudio.duration || start + 1;
-                     ayahDuration = end - start;
-                     ayahCurrentTime = exportAudio.currentTime - start;
-                 }
-                 
-                 const textToDraw = getDisplayChunk(textWithNumber, settings.wordsPerScreen, ayahCurrentTime, ayahDuration);
-                 
-                 wrapText(ctx, textToDraw, finalWidth / 2, finalHeight / 2 - (finalHeight * 0.05), finalWidth * 0.8, mainFontSize * 1.5);
-                 
-                 // Translation Text
-                 if (settings.showTranslation && currentAyah.translationText) {
-                     ctx.globalAlpha = (settings.textOpacity / 100) * 0.8;
-                     const transFontSize = Math.round(finalWidth * 0.04 * (settings.fontSize / 32));
-                     ctx.font = `bold ${transFontSize}px "Cairo", Arial, sans-serif`;
-                     const transToDraw = getDisplayChunk(currentAyah.translationText, settings.wordsPerScreen * 2, ayahCurrentTime, ayahDuration);
-                     wrapText(ctx, transToDraw, finalWidth / 2, finalHeight / 2 + (finalHeight * 0.15), finalWidth * 0.8, transFontSize * 1.5);
-                 }
-             }
-
-             ctx.globalAlpha = 1;
-             ctx.shadowBlur = 0;
-
-         } catch(e) {
-             // Ignore frame drop
+      const runExportLoop = async () => {
+         if (exportTime > totalDuration) {
+            recorder.stop();
+            return;
          }
+
+         await renderCanvas(ctx, finalWidth, finalHeight, exportTime, true);
          
-         if (isRecording) {
-             const prog = Math.floor((ayahIdx / ayahs.length) * 100);
-             setExportProgress(prog);
-             ctx.restore();
-             
-             requestAnimationFrame(drawFrame);
-         }
+         exportTime += frameDelay;
+         setExportProgress(Math.floor((exportTime / totalDuration) * 100));
+         
+         // Give audio source time or just proceed if we are doing frame-by-frame capture
+         // Note: MediaRecorder with canvas stream usually records what it sees.
+         // Since we aren't using requestAnimationFrame here, we can speed it up or slow it down.
+         setTimeout(runExportLoop, 10); 
       };
-      
-      requestAnimationFrame(drawFrame);
+
+      runExportLoop();
 
     } catch (err) {
       console.error("Export failed", err);
@@ -460,9 +497,8 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
   const handleTimeUpdate = () => {
     if (!audioRef.current) return;
     
-    const currentTime = audioRef.current.currentTime;
-    const duration = audioRef.current.duration || 1;
-    setAudioState({ currentTime, duration });
+    const time = audioRef.current.currentTime;
+    setCurrentTime(time);
     
     if (settings.reciterId !== 'custom') return;
     const timestamps = settings.customAudioTimestamps;
@@ -470,7 +506,7 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
     if (timestamps && timestamps.length > 0) {
         let newIndex = 0;
         for (let i = timestamps.length - 1; i >= 0; i--) {
-            if (currentTime >= timestamps[i]) {
+            if (time >= timestamps[i]) {
                 newIndex = i;
                 break;
             }
@@ -480,6 +516,15 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
         }
     }
   };
+
+  useEffect(() => {
+    if (audioRef.current) {
+        // If currentTime changed from outside (Timeline), sync audio
+        if (Math.abs(audioRef.current.currentTime - currentTime) > 0.3) {
+            audioRef.current.currentTime = currentTime;
+        }
+    }
+  }, [currentTime]);
 
   const togglePlay = () => {
     if (ayahs.length === 0) return;
@@ -496,13 +541,14 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
   let previewTrans = currentAyah?.translationText || '';
   
   if (settings.wordsPerScreen > 0) {
-      let ayahDuration = audioState.duration;
-      let ayahCurrentTime = audioState.currentTime;
+      const audioDuration = audioRef.current?.duration || 1;
+      let ayahDuration = audioDuration;
+      let ayahCurrentTime = currentTime;
       if (settings.reciterId === 'custom' && settings.customAudioTimestamps) {
           const start = settings.customAudioTimestamps[currentAyahIndex] || 0;
-          const end = settings.customAudioTimestamps[currentAyahIndex + 1] || audioState.duration || start + 1;
+          const end = settings.customAudioTimestamps[currentAyahIndex + 1] || audioDuration || start + 1;
           ayahDuration = end - start;
-          ayahCurrentTime = audioState.currentTime - start;
+          ayahCurrentTime = currentTime - start;
       }
       previewText = getDisplayChunk(previewText, settings.wordsPerScreen, ayahCurrentTime, Math.max(0.1, ayahDuration));
       if (previewTrans) previewTrans = getDisplayChunk(previewTrans, settings.wordsPerScreen * 2, ayahCurrentTime, Math.max(0.1, ayahDuration));
@@ -533,7 +579,6 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
       </div>
 
       <div 
-        ref={captureRef}
         className={`relative bg-black shadow-2xl transition-all duration-300 flex items-center justify-center overflow-hidden border border-black/10 dark:border-white/10 ${
           settings.glassEffect === 'frame'
             ? 'glass'
@@ -541,75 +586,19 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
         }`}
         style={getContainerStyles()}
       >
-        {/* Background Layer */}
-        <div className="absolute inset-0 z-0 pointer-events-none">
-          {settings.backgrounds[activeBgIndex]?.type === 'color' && (
-            <div className="w-full h-full" style={{ backgroundColor: settings.backgrounds[activeBgIndex].url, opacity: settings.backgroundOpacity / 100 }} />
-          )}
-          {settings.backgrounds[activeBgIndex]?.type === 'image' && (
-             <img src={settings.backgrounds[activeBgIndex].url} alt="bg" className="w-full h-full object-cover" style={{ opacity: settings.backgroundOpacity / 100 }} />
-          )}
-          {settings.backgrounds[activeBgIndex]?.type === 'video' && (
-            <video 
-              src={settings.backgrounds[activeBgIndex].url} 
-              autoPlay 
-              muted 
-              onEnded={() => setActiveBgIndex((prev) => (prev + 1) % settings.backgrounds.length)}
-              className="w-full h-full object-cover" 
-              style={{ opacity: settings.backgroundOpacity / 100 }} 
-            />
-          )}
-          {/* Overlay to ensure text readability */}
-          <div className="absolute inset-0 bg-black/40 mix-blend-multiply" />
-        </div>
-
-        {/* Content Layer */}
-        <div className="relative z-10 p-8 flex flex-col items-center justify-center h-full w-full text-center drop-shadow-lg">
-          {isLoading ? (
-            <div className="animate-pulse text-primary font-bold">جاري تحميل البيانات...</div>
-          ) : ayahs.length === 0 ? (
-            <div className="text-white/40 font-bold">اختر سورة وآيات للبدء</div>
-          ) : currentAyah ? (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={currentAyahIndex}
-                {...getAnimationProps()}
-                transition={{ duration: 0.5 }}
-                className={`flex flex-col gap-6 w-full ${
-                  settings.glassEffect === 'text'
-                    ? 'glass p-6 rounded-2xl shadow-2xl' 
-                    : ''
-                }`}
-              >
-                <p 
-                  className={`text-white leading-relaxed ${settings.fontFamily === 'quran' ? 'font-quran' : settings.fontFamily === 'cairo' ? 'font-cairo' : ''}`}
-                  style={{ 
-                    fontFamily: settings.fontFamily === 'custom' ? 'CustomFont, sans-serif' : undefined,
-                    fontSize: `${settings.fontSize}px`, 
-                    color: `color-mix(in srgb, ${settings.textColor} ${settings.textOpacity}%, transparent)`, 
-                    textShadow: `0 0 ${settings.textShadowBlur}px ${settings.textShadowColor}` 
-                  }}
-                  dir="rtl"
-                >
-                  {previewText}
-                  <span className="inline-block mx-2 text-[0.8em] whitespace-nowrap" dir="rtl" style={{ color: `color-mix(in srgb, ${settings.textColor} ${settings.textOpacity}%, transparent)`, textShadow: `0 0 ${settings.textShadowBlur}px ${settings.textShadowColor}`, fontFamily: settings.fontFamily === 'quran' ? undefined : '"Amiri Quran", serif' }}>
-                    ﴿{currentAyah.numberInSurah.toLocaleString('ar-EG')}﴾
-                  </span>
-                </p>
-
-                {previewTrans && (
-                  <p 
-                    className="mt-2 leading-relaxed font-cairo"
-                    style={{ color: `color-mix(in srgb, ${settings.textColor} ${settings.textOpacity * 0.8}%, transparent)`, fontSize: `${settings.fontSize * 0.6}px`, textShadow: `0 0 ${settings.textShadowBlur}px ${settings.textShadowColor}` }}
-                    dir="ltr"
-                  >
-                    {previewTrans}
-                  </p>
-                )}
-              </motion.div>
-            </AnimatePresence>
-          ) : null}
-        </div>
+        <canvas 
+          ref={canvasRefUI}
+          width={settings.aspectRatio === '16:9' ? 1280 : settings.aspectRatio === '9:16' ? 720 : 1080}
+          height={settings.aspectRatio === '16:9' ? 720 : settings.aspectRatio === '9:16' ? 1280 : 1080}
+          className="w-full h-full object-contain"
+        />
+        
+        {/* Progress Overlay for loading items */}
+        {isLoading && (
+            <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-50">
+               <div className="animate-pulse text-primary font-bold">جاري تحميل الوسائط...</div>
+            </div>
+        )}
       </div>
 
        {/* Hidden Audio Player */}

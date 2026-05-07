@@ -8,9 +8,19 @@ interface SidebarProps {
   surahs: Surah[];
   reciters: Reciter[];
   translations: TranslationEdition[];
+  selectedItemId: string | null;
+  setSelectedItemId: (id: string | null) => void;
 }
 
-export default function Sidebar({ settings, setSettings, surahs, reciters, translations }: SidebarProps) {
+export default function Sidebar({ 
+  settings, 
+  setSettings, 
+  surahs, 
+  reciters, 
+  translations,
+  selectedItemId,
+  setSelectedItemId
+}: SidebarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -76,8 +86,71 @@ export default function Sidebar({ settings, setSettings, surahs, reciters, trans
     { type: 'color', url: '#0f172a' }, // Dark slate
   ];
 
+  const selectedItem = settings.items.find(i => i.id === selectedItemId);
+
+  const updateSelectedItem = (updates: Partial<typeof settings.items[0]>) => {
+    setSettings(prev => ({
+      ...prev,
+      items: prev.items.map(item => item.id === selectedItemId ? { ...item, ...updates } : item)
+    }));
+  };
+
   return (
     <div className="w-[340px] h-full overflow-y-auto glass border-l border-black/5 dark:border-white/20 flex flex-col p-6 gap-8 custom-scrollbar">
+      {selectedItem ? (
+        <div className="animate-in fade-in slide-in-from-right-4 duration-300 flex flex-col gap-6">
+           <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-primary flex items-center gap-2">
+                 خصائص العنصر ({selectedItem.type})
+              </h2>
+              <button onClick={() => setSelectedItemId(null)} className="text-[10px] bg-black/10 dark:bg-white/10 px-2 py-1 rounded">إغلاق</button>
+           </div>
+           
+           <div className="grid grid-cols-2 gap-4">
+              <div>
+                 <label className="text-[10px] text-gray-500 block mb-1">الموضع X (%)</label>
+                 <input type="number" value={selectedItem.x} onChange={e => updateSelectedItem({ x: Number(e.target.value) })} className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded p-1 text-xs" />
+              </div>
+              <div>
+                 <label className="text-[10px] text-gray-500 block mb-1">الموضع Y (%)</label>
+                 <input type="number" value={selectedItem.y} onChange={e => updateSelectedItem({ y: Number(e.target.value) })} className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded p-1 text-xs" />
+              </div>
+              <div>
+                 <label className="text-[10px] text-gray-500 block mb-1">العرض (%)</label>
+                 <input type="number" value={selectedItem.width} onChange={e => updateSelectedItem({ width: Number(e.target.value) })} className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded p-1 text-xs" />
+              </div>
+              <div>
+                 <label className="text-[10px] text-gray-500 block mb-1">الارتفاع (%)</label>
+                 <input type="number" value={selectedItem.height} onChange={e => updateSelectedItem({ height: Number(e.target.value) })} className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded p-1 text-xs" />
+              </div>
+           </div>
+
+           <div>
+              <label className="text-[10px] text-gray-500 block mb-1">الشفافية ({selectedItem.opacity}%)</label>
+              <input type="range" min="0" max="100" value={selectedItem.opacity} onChange={e => updateSelectedItem({ opacity: Number(e.target.value) })} className="w-full accent-primary h-1" />
+           </div>
+
+           {selectedItem.type === 'text' && (
+              <div>
+                 <label className="text-[10px] text-gray-500 block mb-1">محتوى النص</label>
+                 <textarea value={selectedItem.url} onChange={e => updateSelectedItem({ url: e.target.value })} className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded p-2 text-xs" rows={3} />
+              </div>
+           )}
+
+           <button 
+              onClick={() => {
+                setSettings(prev => ({ ...prev, items: prev.items.filter(i => i.id !== selectedItemId) }));
+                setSelectedItemId(null);
+              }}
+              className="w-full py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-lg text-[10px] font-bold hover:bg-red-500/20 transition-colors"
+           >
+              حذف العنصر
+           </button>
+           
+           <div className="border-t border-black/10 dark:border-white/10 my-2" />
+        </div>
+      ) : null}
+
       <div>
         <h1 className="text-xl font-bold text-primary mb-1 flex items-center gap-2 drop-shadow-sm">
             <span>الإعدادات</span>

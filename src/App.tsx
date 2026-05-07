@@ -51,8 +51,31 @@ export default function App() {
     fps: 30,
     borderRadius: 16,
     aiMode: 'cloud',
-    aiModelPower: 50
+    aiModelPower: 50,
+    tracks: [
+      { id: 'bg-track', name: 'الخلفية', type: 'video', isVisible: true, isLocked: false },
+      { id: 'overlay-track', name: 'التراكبات', type: 'video', isVisible: true, isLocked: false },
+      { id: 'quran-track', name: 'القرآن الكريم', type: 'text', isVisible: true, isLocked: false },
+      { id: 'audio-track', name: 'الصوت', type: 'audio', isVisible: true, isLocked: false }
+    ],
+    items: [],
+    duration: 30
   });
+
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+
+  // Update total duration as items change
+  useEffect(() => {
+    const maxTime = Math.max(
+      ...settings.items.map(i => i.startTime + i.duration),
+      settings.duration || 60
+    );
+    if (maxTime !== settings.duration) {
+      setSettings(prev => ({ ...prev, duration: maxTime }));
+    }
+  }, [settings.items]);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -215,6 +238,8 @@ export default function App() {
                   surahs={surahs}
                   reciters={reciters}
                   translations={translations.filter(t => ['en', 'ur', 'fr', 'es', 'id'].includes(t.language))}
+                  selectedItemId={selectedItemId}
+                  setSelectedItemId={setSelectedItemId}
                 />
                 <main className="flex-1 overflow-y-auto relative z-0 bg-black/5 dark:bg-white/5">
                   <div className="min-h-full flex flex-col p-4 lg:p-8 items-center justify-center">
@@ -224,6 +249,10 @@ export default function App() {
                          settings={settings}
                          ayahs={ayahsToPlay}
                          isLoading={isLoadingAyahs}
+                         currentTime={currentTime}
+                         setCurrentTime={setCurrentTime}
+                         isPlaying={isPlaying}
+                         setIsPlaying={setIsPlaying}
                       />
                     </div>
                   </div>
@@ -232,11 +261,13 @@ export default function App() {
               <Timeline 
                   settings={settings} 
                   setSettings={setSettings} 
-                  currentTime={0} // Will be wired to PreviewCanvas
-                  onTimeChange={(time) => {}} 
-                  isPlaying={false} 
-                  onTogglePlay={() => {}}
-                  duration={30} // Will be based on audio
+                  currentTime={currentTime}
+                  onTimeChange={setCurrentTime} 
+                  isPlaying={isPlaying} 
+                  onTogglePlay={() => setIsPlaying(!isPlaying)}
+                  duration={settings.duration}
+                  selectedItemId={selectedItemId}
+                  setSelectedItemId={setSelectedItemId}
               />
             </>
           ) : (

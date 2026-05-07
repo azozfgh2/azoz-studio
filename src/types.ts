@@ -45,24 +45,30 @@ export interface WordTimestamp {
 
 export interface TimelineItem {
   id: string;
-  type: 'text' | 'image' | 'video' | 'audio' | 'background';
+  type: 'text' | 'image' | 'video' | 'audio' | 'quran';
   url: string; // text content or media URL
   startTime: number; // in seconds
   duration: number; // in seconds
   trackId: string;
-  // Visual properties
-  x?: number; // 0 to 100 percentage
-  y?: number; // 0 to 100 percentage
-  width?: number; // Width percentage or absolute
-  height?: number;
-  opacity?: number;
-  zIndex?: number;
+  // Visual properties (0-100 for percentages/base values)
+  x: number; 
+  y: number;
+  width: number;
+  height: number;
+  opacity: number;
+  zIndex: number;
+  rotation: number;
+  scale: number;
+  // Metadata
+  isSystem?: boolean; // For auto-generated items like Quran text
 }
 
 export interface Track {
   id: string;
   name: string;
   type: 'video' | 'audio' | 'text';
+  isVisible: boolean;
+  isLocked: boolean;
 }
 
 export interface VideoSettings {
