@@ -23,7 +23,6 @@ export default function App() {
   // Main video settings state
   const [settings, setSettings] = useState<VideoSettings>({
     aspectRatio: '9:16',
-    borderRadius: 0,
     backgrounds: [{
       type: 'image',
       url: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=800&q=80'

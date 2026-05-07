@@ -10,10 +10,28 @@ interface PreviewCanvasProps {
   isLoading: boolean;
 }
 
+const getDisplayChunk = (text: string, wordsPerScreen: number, currentTime: number, duration: number) => {
+    if (wordsPerScreen <= 0) return text;
+    const words = text.split(' ');
+    if (words.length === 0) return text;
+    const chunks: string[] = [];
+    for (let i = 0; i < words.length; i += wordsPerScreen) {
+        chunks.push(words.slice(i, i + wordsPerScreen).join(' '));
+    }
+    if (chunks.length === 0) return text;
+    
+    let chunkIndex = Math.floor((currentTime / duration) * chunks.length);
+    if (isNaN(chunkIndex) || chunkIndex < 0) chunkIndex = 0;
+    if (chunkIndex >= chunks.length) chunkIndex = chunks.length - 1;
+    
+    return chunks[chunkIndex];
+};
+
 const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps>(({ settings, ayahs, isLoading }, ref) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentAyahIndex, setCurrentAyahIndex] = useState(0);
   const [activeBgIndex, setActiveBgIndex] = useState(0);
+  const [audioState, setAudioState] = useState({ currentTime: 0, duration: 1 });
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const captureRef = useRef<HTMLDivElement>(null);
 
@@ -130,7 +148,13 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
              // Fallback: clear src and just pause so recording can still proceed without audio
              exportAudio.removeAttribute("crossOrigin");
              exportAudio.src = src;
-             await exportAudio.play().catch(e => console.error("Final audio fallback failed", e));
+             await exportAudio.play().catch(e => {
+                 console.error("Final audio fallback failed", e);
+                 // Simulate audio passing if playback totally fails so export doesn't freeze forever
+                 setTimeout(() => {
+                     exportAudio.dispatchEvent(new Event('ended'));
+                 }, 3000);
+             });
           }
       };
       
@@ -220,12 +244,10 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
           }
       };
 
-      // Background extraction refs
-      const bgImgEl = captureRef.current?.querySelector('img') as HTMLImageElement;
-      const bgVideoEl = captureRef.current?.querySelector('video') as HTMLVideoElement;
-      
       const drawFrame = async () => {
          if (!isRecording) return;
+         const currentBgImgEl = captureRef.current?.querySelector('img') as HTMLImageElement;
+         const currentBgVideoEl = captureRef.current?.querySelector('video') as HTMLVideoElement;
          
          try {
              ctx.save();
@@ -243,23 +265,23 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
                  ctx.fillStyle = settings.backgrounds[activeBgIndex].url;
                  ctx.fillRect(0, 0, finalWidth, finalHeight);
                  ctx.globalAlpha = 1.0;
-             } else if (settings.backgrounds[activeBgIndex]?.type === 'image' && bgImgEl) {
+             } else if (settings.backgrounds[activeBgIndex]?.type === 'image' && currentBgImgEl) {
                  ctx.globalAlpha = bgOpacity;
-                 const scale = Math.max(finalWidth / bgImgEl.naturalWidth, finalHeight / bgImgEl.naturalHeight);
-                 const w = bgImgEl.naturalWidth * scale;
-                 const h = bgImgEl.naturalHeight * scale;
+                 const scale = Math.max(finalWidth / currentBgImgEl.naturalWidth, finalHeight / currentBgImgEl.naturalHeight);
+                 const w = currentBgImgEl.naturalWidth * scale;
+                 const h = currentBgImgEl.naturalHeight * scale;
                  const x = (finalWidth - w) / 2;
                  const y = (finalHeight - h) / 2;
-                 ctx.drawImage(bgImgEl, x, y, w, h);
+                 ctx.drawImage(currentBgImgEl, x, y, w, h);
                  ctx.globalAlpha = 1.0;
-             } else if (settings.backgrounds[activeBgIndex]?.type === 'video' && bgVideoEl) {
+             } else if (settings.backgrounds[activeBgIndex]?.type === 'video' && currentBgVideoEl) {
                  ctx.globalAlpha = bgOpacity;
-                 const scale = Math.max(finalWidth / bgVideoEl.videoWidth, finalHeight / bgVideoEl.videoHeight);
-                 const w = bgVideoEl.videoWidth * scale;
-                 const h = bgVideoEl.videoHeight * scale;
+                 const scale = Math.max(finalWidth / currentBgVideoEl.videoWidth, finalHeight / currentBgVideoEl.videoHeight);
+                 const w = currentBgVideoEl.videoWidth * scale;
+                 const h = currentBgVideoEl.videoHeight * scale;
                  const x = (finalWidth - w) / 2;
                  const y = (finalHeight - h) / 2;
-                 ctx.drawImage(bgVideoEl, x, y, w, h);
+                 ctx.drawImage(currentBgVideoEl, x, y, w, h);
                  ctx.globalAlpha = 1.0;
              } else {
                  ctx.globalAlpha = 1.0;
@@ -278,7 +300,7 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
                  
                  ctx.globalAlpha = settings.textOpacity / 100;
                  ctx.shadowColor = settings.textShadowColor;
-                 ctx.shadowBlur = settings.textShadowBlur * pixelRatio * 2;
+                 ctx.shadowBlur = settings.textShadowBlur * pixelRatio; // reduced blur slightly
                  ctx.fillStyle = settings.textColor;
                  ctx.textAlign = 'center';
                  ctx.textBaseline = 'middle';
@@ -290,14 +312,28 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
                  ctx.font = `bold ${mainFontSize}px "${fontFamily}", serif`;
                  
                  const textWithNumber = `${currentAyah.text} ﴿${currentAyah.numberInSurah.toLocaleString('ar-EG')}﴾`;
-                 wrapText(ctx, textWithNumber, finalWidth / 2, finalHeight / 2 - (finalHeight * 0.05), finalWidth * 0.8, mainFontSize * 1.5);
+                 
+                 let ayahDuration = exportAudio.duration || 1;
+                 let ayahCurrentTime = exportAudio.currentTime || 0;
+                 
+                 if (settings.reciterId === 'custom' && settings.customAudioTimestamps) {
+                     const start = settings.customAudioTimestamps[ayahIdx] || 0;
+                     const end = settings.customAudioTimestamps[ayahIdx + 1] || exportAudio.duration || start + 1;
+                     ayahDuration = end - start;
+                     ayahCurrentTime = exportAudio.currentTime - start;
+                 }
+                 
+                 const textToDraw = getDisplayChunk(textWithNumber, settings.wordsPerScreen, ayahCurrentTime, ayahDuration);
+                 
+                 wrapText(ctx, textToDraw, finalWidth / 2, finalHeight / 2 - (finalHeight * 0.05), finalWidth * 0.8, mainFontSize * 1.5);
                  
                  // Translation Text
                  if (settings.showTranslation && currentAyah.translationText) {
                      ctx.globalAlpha = (settings.textOpacity / 100) * 0.8;
-                     const transFontSize = finalWidth * 0.04 * (settings.fontSize / 32);
-                     ctx.font = `${transFontSize}px "Cairo", Arial, sans-serif`;
-                     wrapText(ctx, currentAyah.translationText, finalWidth / 2, finalHeight / 2 + (finalHeight * 0.15), finalWidth * 0.8, transFontSize * 1.5);
+                     const transFontSize = Math.round(finalWidth * 0.04 * (settings.fontSize / 32));
+                     ctx.font = `bold ${transFontSize}px "Cairo", Arial, sans-serif`;
+                     const transToDraw = getDisplayChunk(currentAyah.translationText, settings.wordsPerScreen * 2, ayahCurrentTime, ayahDuration);
+                     wrapText(ctx, transToDraw, finalWidth / 2, finalHeight / 2 + (finalHeight * 0.15), finalWidth * 0.8, transFontSize * 1.5);
                  }
              }
 
@@ -421,10 +457,13 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
   };
 
   const handleTimeUpdate = () => {
-    if (settings.reciterId !== 'custom') return;
     if (!audioRef.current) return;
     
     const currentTime = audioRef.current.currentTime;
+    const duration = audioRef.current.duration || 1;
+    setAudioState({ currentTime, duration });
+    
+    if (settings.reciterId !== 'custom') return;
     const timestamps = settings.customAudioTimestamps;
     
     if (timestamps && timestamps.length > 0) {
@@ -451,6 +490,22 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
   };
 
   const currentAyah = ayahs[currentAyahIndex];
+  
+  let previewText = currentAyah?.text || '';
+  let previewTrans = currentAyah?.translationText || '';
+  
+  if (settings.wordsPerScreen > 0) {
+      let ayahDuration = audioState.duration;
+      let ayahCurrentTime = audioState.currentTime;
+      if (settings.reciterId === 'custom' && settings.customAudioTimestamps) {
+          const start = settings.customAudioTimestamps[currentAyahIndex] || 0;
+          const end = settings.customAudioTimestamps[currentAyahIndex + 1] || audioState.duration || start + 1;
+          ayahDuration = end - start;
+          ayahCurrentTime = audioState.currentTime - start;
+      }
+      previewText = getDisplayChunk(previewText, settings.wordsPerScreen, ayahCurrentTime, Math.max(0.1, ayahDuration));
+      if (previewTrans) previewTrans = getDisplayChunk(previewTrans, settings.wordsPerScreen * 2, ayahCurrentTime, Math.max(0.1, ayahDuration));
+  }
 
   return (
     <div className="flex flex-col items-center w-full max-w-4xl mx-auto">
@@ -535,19 +590,19 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
                   }}
                   dir="rtl"
                 >
-                  {currentAyah.text}
+                  {previewText}
                   <span className="inline-block mx-2 text-[0.8em] whitespace-nowrap" dir="rtl" style={{ color: `color-mix(in srgb, ${settings.textColor} ${settings.textOpacity}%, transparent)`, textShadow: `0 0 ${settings.textShadowBlur}px ${settings.textShadowColor}`, fontFamily: settings.fontFamily === 'quran' ? undefined : '"Amiri Quran", serif' }}>
                     ﴿{currentAyah.numberInSurah.toLocaleString('ar-EG')}﴾
                   </span>
                 </p>
 
-                {currentAyah.translationText && (
+                {previewTrans && (
                   <p 
                     className="mt-2 leading-relaxed font-cairo"
                     style={{ color: `color-mix(in srgb, ${settings.textColor} ${settings.textOpacity * 0.8}%, transparent)`, fontSize: `${settings.fontSize * 0.6}px`, textShadow: `0 0 ${settings.textShadowBlur}px ${settings.textShadowColor}` }}
                     dir="ltr"
                   >
-                    {currentAyah.translationText}
+                    {previewTrans}
                   </p>
                 )}
               </motion.div>
