@@ -83,23 +83,23 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
          }
       }
 
-      // Configure Web Audio API
-      audioRef.current.crossOrigin = "anonymous";
+      const exportAudio = new Audio();
+      exportAudio.crossOrigin = "anonymous";
+      
       let audioCtx: AudioContext | null = null;
       let dest: MediaStreamAudioDestinationNode | null = null;
       try {
          audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
          dest = audioCtx.createMediaStreamDestination();
-         if (!(audioRef.current as any).sourceNode) {
-             (audioRef.current as any).sourceNode = audioCtx.createMediaElementSource(audioRef.current);
-             (audioRef.current as any).sourceNode.connect(audioCtx.destination);
-         }
-         (audioRef.current as any).sourceNode.connect(dest);
+         const sourceNode = audioCtx.createMediaElementSource(exportAudio);
+         sourceNode.connect(audioCtx.destination);
+         sourceNode.connect(dest);
       } catch (e) {
          console.warn("Could not capture audio natively", e);
       }
 
-      const stream = canvas.captureStream(30);
+      const fps = settings.fps || 60;
+      const stream = canvas.captureStream(fps);
       if (dest) {
          const audioTracks = dest.stream.getAudioTracks();
          if (audioTracks.length > 0) stream.addTrack(audioTracks[0]);
@@ -111,9 +111,10 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
        ? 'video/webm'
        : 'video/mp4';
 
-      let videoBitsPerSecond = 2500000;
-      if (settings.resolution === '4K') videoBitsPerSecond = 8000000;
-      if (settings.resolution === 'FHD') videoBitsPerSecond = 5000000;
+      let videoBitsPerSecond = 5000000;
+      if (settings.resolution === 'SD') videoBitsPerSecond = 2000000;
+      if (settings.resolution === 'FHD') videoBitsPerSecond = 8000000;
+      if (settings.resolution === '4K') videoBitsPerSecond = 16000000;
 
       const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond });
       const chunks: BlobPart[] = [];
@@ -130,7 +131,6 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
          document.body.removeChild(a);
          URL.revokeObjectURL(url);
          
-         // Clean up blobs
          audioSources.forEach(src => {
              if (src.startsWith('blob:')) URL.revokeObjectURL(src);
          });
@@ -144,63 +144,88 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
       let isRecording = true;
       let ayahIdx = 0;
 
-      // Start playback
-      setIsPlaying(true);
-      setCurrentAyahIndex(0);
-      audioRef.current.src = audioSources[0] || '';
+      exportAudio.src = audioSources[0] || '';
       
-      const playPromise = audioRef.current.play();
+      const playPromise = exportAudio.play();
       if (playPromise) {
           playPromise.catch(e => {
               console.error("Audio play failed in export", e);
-              alert("تعذر تشغيل الصوت للتسجيل");
-              isRecording = false;
-              recorder.stop();
+              // Fallback to visual only
+              console.log("Exporting visually without audio...");
           });
       }
 
-      // To know when we should stop, we override the audio ended handler locally
-      const oldOnEnded = audioRef.current.onended;
-      audioRef.current.onended = (e) => {
+      exportAudio.onended = () => {
           if (settings.reciterId === 'custom') {
               isRecording = false;
               recorder.stop();
           } else {
               ayahIdx++;
               if (ayahIdx < ayahs.length) {
-                  setCurrentAyahIndex(ayahIdx);
-                  if (audioRef.current) {
-                      audioRef.current.src = audioSources[ayahIdx];
-                      audioRef.current.play().catch(() => {});
-                  }
+                  exportAudio.src = audioSources[ayahIdx];
+                  exportAudio.play().catch(() => {});
               } else {
                   isRecording = false;
                   recorder.stop();
               }
           }
-          if (oldOnEnded) (oldOnEnded as any)(e);
       };
 
-      const module = await import('html-to-image');
+      // Background extraction refs
+      const bgImgEl = captureRef.current?.querySelector('img') as HTMLImageElement;
+      const bgVideoEl = captureRef.current?.querySelector('video') as HTMLVideoElement;
       
       const drawFrame = async () => {
          if (!isRecording) return;
          
          try {
-             // html-to-image toCanvas recreates the DOM exactly as seen
-             const frameCanvas = await module.toCanvas(captureRef.current!, { 
-                 quality: 1.0, 
-                 pixelRatio: pixelRatio,
-                 backgroundColor: '#000',
-                 skipFonts: false
-             });
-             ctx.drawImage(frameCanvas, 0, 0, finalWidth, finalHeight);
+             // 1. Draw Background
+             if (settings.background.type === 'color') {
+                 ctx.fillStyle = settings.background.url;
+                 ctx.fillRect(0, 0, finalWidth, finalHeight);
+             } else if (settings.background.type === 'image' && bgImgEl) {
+                 ctx.drawImage(bgImgEl, 0, 0, finalWidth, finalHeight);
+             } else if (settings.background.type === 'video' && bgVideoEl) {
+                 ctx.drawImage(bgVideoEl, 0, 0, finalWidth, finalHeight);
+             } else {
+                 ctx.fillStyle = '#000';
+                 ctx.fillRect(0, 0, finalWidth, finalHeight);
+             }
+             
+             // 2. Draw Overlay
+             ctx.fillStyle = 'rgba(0,0,0,0.4)';
+             ctx.fillRect(0, 0, finalWidth, finalHeight);
+             
+             // 3. Draw Text
+             if (ayahIdx < ayahs.length) {
+                 const currentAyah = ayahs[ayahIdx];
+                 
+                 // Ayah Text
+                 const mainFontSize = finalWidth * 0.08 * (settings.fontSize / 32);
+                 ctx.fillStyle = settings.textColor;
+                 ctx.textAlign = 'center';
+                 ctx.textBaseline = 'middle';
+                 
+                 const fontFamily = settings.fontFamily === 'quran' ? 'Amiri Quran' : settings.fontFamily === 'cairo' ? 'Cairo' : 'Arial';
+                 ctx.font = `bold ${mainFontSize}px "${fontFamily}", serif`;
+                 
+                 const textWithNumber = `${currentAyah.text} ﴿${currentAyah.numberInSurah.toLocaleString('ar-EG')}﴾`;
+                 wrapText(ctx, textWithNumber, finalWidth / 2, finalHeight / 2 - (finalHeight * 0.05), finalWidth * 0.8, mainFontSize * 1.5);
+                 
+                 // Translation Text
+                 if (settings.showTranslation && currentAyah.translationText) {
+                     const transFontSize = finalWidth * 0.04 * (settings.fontSize / 32);
+                     ctx.fillStyle = `color-mix(in srgb, ${settings.textColor} 80%, transparent)`;
+                     ctx.font = `${transFontSize}px "Cairo", Arial, sans-serif`;
+                     wrapText(ctx, currentAyah.translationText, finalWidth / 2, finalHeight / 2 + (finalHeight * 0.15), finalWidth * 0.8, transFontSize * 1.5);
+                 }
+             }
+
          } catch(e) {
              // Ignore frame drop
          }
          
          if (isRecording) {
-             // Calculate rough progress based on ayah index
              const prog = Math.floor((ayahIdx / ayahs.length) * 100);
              setExportProgress(prog);
              requestAnimationFrame(drawFrame);
