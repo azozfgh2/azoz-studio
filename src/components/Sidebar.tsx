@@ -137,6 +137,36 @@ export default function Sidebar({
               </div>
            )}
 
+           {(selectedItem.type === 'video' || selectedItem.type === 'image') && (
+              <div className="flex flex-col gap-2">
+                 <label className="text-[10px] text-gray-500 block mb-1">ملف الوسائط (رابط أو رفع)</label>
+                 <input type="text" value={selectedItem.url} onChange={e => updateSelectedItem({ url: e.target.value })} className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded p-2 text-xs mb-2" placeholder="https://..." />
+                 <input 
+                    type="file" 
+                    accept={selectedItem.type === 'video' ? "video/*" : "image/*"} 
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const url = URL.createObjectURL(file);
+                        updateSelectedItem({ url });
+                      }
+                    }} 
+                    className="w-full text-xs"
+                 />
+              </div>
+           )}
+
+           <div className="flex gap-2">
+              <div className="flex-1">
+                 <label className="text-[10px] text-gray-500 block mb-1">وقت البدء (ثانية)</label>
+                 <input type="number" step="0.1" value={selectedItem.startTime} onChange={e => updateSelectedItem({ startTime: Number(e.target.value) })} className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded p-1 text-xs" />
+              </div>
+              <div className="flex-1">
+                 <label className="text-[10px] text-gray-500 block mb-1">المدة (ثانية)</label>
+                 <input type="number" step="0.1" value={selectedItem.duration} onChange={e => updateSelectedItem({ duration: Number(e.target.value) })} className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded p-1 text-xs" />
+              </div>
+           </div>
+
            <button 
               onClick={() => {
                 setSettings(prev => ({ ...prev, items: prev.items.filter(i => i.id !== selectedItemId) }));

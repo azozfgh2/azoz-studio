@@ -200,29 +200,30 @@ export default function App() {
       <div className="app-bg-light"></div>
       <div className="flex flex-col h-screen w-full overflow-hidden text-gray-900 dark:text-gray-200 font-sans selection:bg-primary/30 z-10 relative">
         {/* Header Navigation */}
-        <header className="h-14 glass-header flex items-center justify-between px-6 shrink-0 relative z-20">
+        <header className="h-16 glass-header flex items-center justify-between px-6 shrink-0 relative z-20">
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center text-primary mix-blend-multiply dark:mix-blend-lighten drop-shadow-md">
-               <div className="text-3xl font-black tracking-tighter" style={{ fontFamily: 'Cairo, sans-serif' }}>عزوز</div>
+            <div className="flex items-center justify-center text-primary drop-shadow-md bg-white/50 dark:bg-black/50 px-3 py-1.5 rounded-lg border border-black/5 dark:border-white/5">
+               <div className="text-2xl font-black tracking-tighter" style={{ fontFamily: 'Cairo, sans-serif' }}>عزوز</div>
+               <span className="text-xs font-bold tracking-widest text-gray-500 mr-2 mt-1 uppercase opacity-80">ستوديو</span>
             </div>
-            <h1 className="text-sm font-semibold tracking-wide text-primary/80 mt-1 uppercase">ستوديو</h1>
           </div>
           <div className="flex items-center gap-4">
             <button 
               onClick={() => setIsDarkMode(!isDarkMode)} 
-              className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors text-gray-600 dark:text-gray-300"
+              className="w-10 h-10 flex items-center justify-center rounded-full glass-surface text-gray-600 dark:text-gray-300 hover:text-primary dark:hover:text-primary !rounded-full transition-all hover:scale-105"
+              aria-label="Toggle Dark Mode"
             >
               {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            <div className="flex bg-black/5 dark:bg-white/5 rounded-lg p-1 border border-black/10 dark:border-white/10">
-              <button className={`px-4 py-1.5 text-xs font-medium rounded-md ${currentView === 'editor' ? 'bg-white dark:bg-primary shadow text-primary dark:text-black' : 'text-gray-600 dark:text-white/60 hover:text-black dark:hover:text-white transition-colors'}`} onClick={() => setCurrentView('editor')}>المحرر</button>
-              <button className={`px-4 py-1.5 text-xs font-medium rounded-md ${currentView === 'library' ? 'bg-white dark:bg-primary shadow text-primary dark:text-black' : 'text-gray-600 dark:text-white/60 hover:text-black dark:hover:text-white transition-colors'}`} onClick={() => setCurrentView('library')}>المكتبة</button>
+            <div className="flex bg-black/5 dark:bg-white/5 rounded-xl p-1 shadow-inner border border-black/5 dark:border-white/5">
+              <button className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${currentView === 'editor' ? 'glass-btn border-none shadow-[0_4px_12px_rgba(0,0,0,0.05)] text-primary dark:text-primary transform scale-[1.02]' : 'text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white'}`} onClick={() => setCurrentView('editor')}>المحرر</button>
+              <button className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${currentView === 'library' ? 'glass-btn border-none shadow-[0_4px_12px_rgba(0,0,0,0.05)] text-primary dark:text-primary transform scale-[1.02]' : 'text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white'}`} onClick={() => setCurrentView('library')}>المكتبة</button>
             </div>
             <button 
-              className="flex items-center gap-2 px-6 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-xs font-bold rounded-full hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors shadow-lg" 
+              className="flex items-center gap-2 px-6 py-2.5 bg-primary text-black text-xs font-black rounded-xl hover:bg-primary-dark transition-all shadow-[0_4px_16px_rgba(197,160,89,0.4)] hover:shadow-[0_4px_20px_rgba(197,160,89,0.6)] transform hover:-translate-y-0.5 active:translate-y-0" 
               onClick={() => canvasRef.current?.exportVideo()}
             >
-              <Download size={14} />
+              <Download size={16} />
               تصدير الفيديو
             </button>
           </div>
@@ -241,8 +242,9 @@ export default function App() {
                   selectedItemId={selectedItemId}
                   setSelectedItemId={setSelectedItemId}
                 />
-                <main className="flex-1 overflow-y-auto relative z-0 bg-black/5 dark:bg-white/5">
-                  <div className="min-h-full flex flex-col p-4 lg:p-8 items-center justify-center">
+                <main className="flex-1 overflow-y-auto relative z-0">
+                  <div className="absolute inset-0 bg-black/5 dark:bg-white/5 pointer-events-none mix-blend-overlay"></div>
+                  <div className="min-h-full flex flex-col p-4 lg:p-8 items-center justify-center relative z-10">
                     <div className="w-full shrink-0 flex items-center justify-center">
                       <PreviewCanvas 
                          ref={canvasRef}

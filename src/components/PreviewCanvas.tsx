@@ -58,15 +58,18 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
       if (videoElementsRef.current.has(item.url)) return videoElementsRef.current.get(item.url)!;
       const v = document.createElement('video');
       v.src = item.url;
-      v.crossOrigin = "anonymous";
+      if (!item.url.startsWith('blob:')) v.crossOrigin = "anonymous";
       v.load();
       videoElementsRef.current.set(item.url, v);
-      return v;
+      return new Promise((res) => { 
+        v.onloadedmetadata = () => res(v); 
+        v.onerror = () => res(v); // Return video anyway, it might play
+      });
     } else if (item.type === 'image') {
       if (imageElementsRef.current.has(item.url)) return imageElementsRef.current.get(item.url)!;
       const img = new Image();
+      if (!item.url.startsWith('blob:')) img.crossOrigin = "anonymous";
       img.src = item.url;
-      img.crossOrigin = "anonymous";
       imageElementsRef.current.set(item.url, img);
       return new Promise((res) => { img.onload = () => res(img); img.onerror = () => res(null); });
     }
@@ -456,9 +459,9 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
       
       requestAnimationFrame(drawFrame);
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Export failed", err);
-      alert("حدث خطأ أثناء إعداد التصدير. قد تكون دقة الفيديو عالية جداً على متصفحك.");
+      alert("حدث خطأ أثناء إعداد التصدير:\n" + (err?.message || String(err)) + "\n\nالحل: حاول تقليل الدقة (مثلاً: SD) أو استخدام متصفح يدعم تسجيل الفيديو بشكل كامل.");
       setIsExporting(false);
     }
   };
