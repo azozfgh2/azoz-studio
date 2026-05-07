@@ -18,20 +18,58 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
 
   const exportVideoLogic = async () => {
     try {
-      // @ts-ignore
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { displaySurface: "browser" },
-        audio: true,
-        preferCurrentTab: true,
-      });
+      if (!captureRef.current || !audioRef.current || ayahs.length === 0) {
+          alert('لا يوجد محتوى لتصديره.');
+          return;
+      }
+
+      alert("بدأ تحضير الفيديو (بدون مشاركة شاشة)... قد يستغرق التصدير بعض الوقت. يرجى الانتظار واختبار المعاينة أثناء التسجيل.");
       
+      const width = captureRef.current.clientWidth;
+      const height = captureRef.current.clientHeight;
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const stream = canvas.captureStream(30);
+      
+      // Setup audio capture
+      let combinedStream = stream;
+      try {
+        // We try to capture audio from the element
+        // Note: For this to work with cross-origin, audio needs crossOrigin="anonymous"
+        audioRef.current.crossOrigin = "anonymous";
+        
+        // We use a new AudioContext
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const dest = audioCtx.createMediaStreamDestination();
+        
+        // Create source if not already created (can only create once per element)
+        if (!(audioRef.current as any).sourceNode) {
+            (audioRef.current as any).sourceNode = audioCtx.createMediaElementSource(audioRef.current);
+            (audioRef.current as any).sourceNode.connect(audioCtx.destination); // Connect to speakers
+        }
+        (audioRef.current as any).sourceNode.connect(dest); // Connect to recorder
+
+        // Combine video and audio
+        const audioTracks = dest.stream.getAudioTracks();
+        if (audioTracks.length > 0) {
+            combinedStream = new MediaStream([ ...stream.getVideoTracks(), ...audioTracks ]);
+        }
+      } catch (audioErr) {
+        console.warn("Could not capture audio natively due to CORS/API limits, video might have no audio.", audioErr);
+      }
+
       const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9')
        ? 'video/webm; codecs=vp9'
        : MediaRecorder.isTypeSupported('video/webm')
        ? 'video/webm'
        : 'video/mp4';
 
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const recorder = new MediaRecorder(combinedStream, { mimeType });
       const chunks: BlobPart[] = [];
       
       recorder.ondataavailable = (e) => {
@@ -47,14 +85,67 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
         a.download = `quran-video-${settings.surahNumber}-${settings.startAyah}.${ext}`;
         a.click();
         URL.revokeObjectURL(url);
-        stream.getTracks().forEach(track => track.stop());
+        
+        alert("اكتمل التصدير!");
       };
 
       recorder.start();
-      alert("بدأ التسجيل! قم بتشغيل المقطع للبدء.\nأوقف مشاركة الشاشة من المتصفح عند الانتهاء ليتم تحميل الفيديو تلقائياً.");
+
+      let isRecording = true;
+      let lastFrameTime = 0;
+      
+      // Start playback to record
+      setCurrentAyahIndex(0);
+      audioRef.current.currentTime = 0;
+      await audioRef.current.play().catch(e => {
+         console.error("Audio play failed", e);
+         alert("فشل تشغيل الصوت للتسجيل");
+         isRecording = false;
+         recorder.stop();
+      });
+      setIsPlaying(true);
+
+      const drawFrame = async (timestamp: number) => {
+        if (!isRecording) return;
+        
+        // Throttle to ~15-20 frames per second to avoid freezing the browser
+        if (timestamp - lastFrameTime > 50) {
+            try {
+               // We only paint the DOM to the hidden canvas
+               // Since html-to-image can be heavy, we use it directly on the wrapper
+               // Using import { toCanvas } instead of toPng to get raw pixels
+               const frameCanvas = await import('html-to-image').then(m => m.toCanvas(captureRef.current!, { 
+                   quality: 0.8, 
+                   pixelRatio: 1,
+                   skipFonts: true // speed up
+               }));
+               ctx.drawImage(frameCanvas, 0, 0, width, height);
+               lastFrameTime = timestamp;
+            } catch(e) {
+               console.warn("Frame drop", e);
+            }
+        }
+        
+        requestAnimationFrame(drawFrame);
+      };
+      
+      requestAnimationFrame(drawFrame);
+
+      // Stop recording when audio finishes or we reach end
+      const originalOnEnded = audioRef.current.onended;
+      audioRef.current.onended = (e) => {
+          if (originalOnEnded) {
+             (originalOnEnded as any)(e);
+          }
+          if (settings.reciterId === 'custom' || currentAyahIndex >= ayahs.length - 1) {
+             isRecording = false;
+             recorder.stop();
+          }
+      };
+
     } catch (err) {
-      console.error("Export failed", err);
-      alert("تعذر تسجيل الشاشة. قد يكون المتصفح لا يدعم هذه الميزة أو تم الإلغاء.");
+      console.error("Export failed completely", err);
+      alert("حدث خطأ أثناء إعداد التصدير.");
     }
   };
 
@@ -284,6 +375,7 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
        {/* Hidden Audio Player */}
        <audio
         ref={audioRef}
+        crossOrigin="anonymous"
         onEnded={handleAudioEnded}
         onTimeUpdate={handleTimeUpdate}
         className="hidden"
