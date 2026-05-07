@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import PreviewCanvas from './components/PreviewCanvas';
+import Timeline from './components/Timeline';
 import { VideoSettings, Surah, Reciter, TranslationEdition, AyahData } from './types';
 import { getSurahs, getReciters, getTranslations, getAyahsData } from './lib/api';
 import { Sun, Moon, Download } from 'lucide-react';
@@ -204,32 +205,39 @@ export default function App() {
           </div>
         </header>
 
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden">
           {currentView === 'editor' ? (
             <>
-              <Sidebar 
-                settings={settings} 
-                setSettings={setSettings} 
-                surahs={surahs}
-                reciters={reciters}
-                translations={translations.filter(t => ['en', 'ur', 'fr', 'es', 'id'].includes(t.language))}
-              />
-              <main className="flex-1 overflow-y-auto relative z-0">
-                <div className="min-h-full flex flex-col p-4 lg:p-8">
-                  {/* Spacer for safe vertical centering */}
-                  <div className="flex-1" aria-hidden="true"></div>
-                  <div className="w-full shrink-0">
-                    <PreviewCanvas 
-                       ref={canvasRef}
-                       settings={settings}
-                       ayahs={ayahsToPlay}
-                       isLoading={isLoadingAyahs}
-                    />
+              <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+                <Sidebar 
+                  settings={settings} 
+                  setSettings={setSettings} 
+                  surahs={surahs}
+                  reciters={reciters}
+                  translations={translations.filter(t => ['en', 'ur', 'fr', 'es', 'id'].includes(t.language))}
+                />
+                <main className="flex-1 overflow-y-auto relative z-0 bg-black/5 dark:bg-white/5">
+                  <div className="min-h-full flex flex-col p-4 lg:p-8 items-center justify-center">
+                    <div className="w-full shrink-0 flex items-center justify-center">
+                      <PreviewCanvas 
+                         ref={canvasRef}
+                         settings={settings}
+                         ayahs={ayahsToPlay}
+                         isLoading={isLoadingAyahs}
+                      />
+                    </div>
                   </div>
-                  {/* Spacer for safe vertical centering */}
-                  <div className="flex-1" aria-hidden="true"></div>
-                </div>
-              </main>
+                </main>
+              </div>
+              <Timeline 
+                  settings={settings} 
+                  setSettings={setSettings} 
+                  currentTime={0} // Will be wired to PreviewCanvas
+                  onTimeChange={(time) => {}} 
+                  isPlaying={false} 
+                  onTogglePlay={() => {}}
+                  duration={30} // Will be based on audio
+              />
             </>
           ) : (
              <main className="flex-1 overflow-y-auto p-4 lg:p-8 relative z-0 w-full bg-black/5 dark:bg-black/20">

@@ -43,19 +43,41 @@ export interface WordTimestamp {
   timestamp: number;
 }
 
+export interface TimelineItem {
+  id: string;
+  type: 'text' | 'image' | 'video' | 'audio' | 'background';
+  url: string; // text content or media URL
+  startTime: number; // in seconds
+  duration: number; // in seconds
+  trackId: string;
+  // Visual properties
+  x?: number; // 0 to 100 percentage
+  y?: number; // 0 to 100 percentage
+  width?: number; // Width percentage or absolute
+  height?: number;
+  opacity?: number;
+  zIndex?: number;
+}
+
+export interface Track {
+  id: string;
+  name: string;
+  type: 'video' | 'audio' | 'text';
+}
+
 export interface VideoSettings {
   aspectRatio: AspectRatio;
   borderRadius: number;
-  backgrounds: BackgroundProps[]; // Array of backgrounds to play sequentially
-  backgroundOpacity: number; // 0 to 100
-  wordsPerScreen: number; // 0 means whole ayah, 1 means 1 word, 2 means 2 words, etc.
+  backgrounds: BackgroundProps[];
+  backgroundOpacity: number;
+  wordsPerScreen: number;
   surahNumber: number;
   startAyah: number;
   endAyah: number;
   reciterId: string;
   customAudioUrl: string | null;
-  customAudioTimestamps: number[]; // e.g. start times for each ayah
-  customWordTimestamps: WordTimestamp[]; // For Word-by-word local AI sync
+  customAudioTimestamps: number[];
+  customWordTimestamps: WordTimestamp[];
   translationId: string | null;
   
   // Advanced Text Styling
@@ -74,6 +96,11 @@ export interface VideoSettings {
 
   // AI Options
   aiMode: 'cloud' | 'local';
-  aiModelPower: number; // 0 to 100
+  aiModelPower: number;
+  
+  // Editor State
+  tracks: Track[];
+  items: TimelineItem[];
+  duration: number; // total duration
 }
 

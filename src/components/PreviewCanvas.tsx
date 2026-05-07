@@ -304,6 +304,7 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
                  ctx.fillStyle = settings.textColor;
                  ctx.textAlign = 'center';
                  ctx.textBaseline = 'middle';
+                 ctx.direction = 'rtl';
                  
                  // Ayah Text
                  const mainFontSize = Math.round(finalWidth * 0.08 * (settings.fontSize / 32));
