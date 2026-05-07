@@ -27,10 +27,10 @@ export default function Sidebar({ settings, setSettings, surahs, reciters, trans
       const isVideo = file.type.startsWith('video/');
       setSettings(prev => ({
         ...prev,
-        background: {
+        backgrounds: [...prev.backgrounds, {
           type: isVideo ? 'video' : 'image',
           url
-        }
+        }]
       }));
     }
   };
@@ -135,8 +135,8 @@ export default function Sidebar({ settings, setSettings, surahs, reciters, trans
            {presetBackgrounds.map((bg, idx) => (
              <button 
                 key={idx}
-                onClick={() => setSettings(prev => ({ ...prev, background: bg as any }))}
-                className={`aspect-video rounded-md overflow-hidden border transition-all ${settings.background.url === bg.url ? 'border-primary shadow-sm' : 'border-black/5 dark:border-transparent hover:border-black/20 dark:hover:border-white/40'}`}
+                onClick={() => setSettings(prev => ({ ...prev, backgrounds: [bg as any] }))}
+                className={`aspect-video rounded-md overflow-hidden border transition-all hover:border-black/20 dark:hover:border-white/40`}
              >
                 {bg.type === 'color' ? (
                    <div className="w-full h-full" style={{ backgroundColor: bg.url }} />
@@ -147,6 +147,24 @@ export default function Sidebar({ settings, setSettings, surahs, reciters, trans
                 )}
              </button>
            ))}
+        </div>
+
+        <div className="flex gap-2 w-full overflow-x-auto pb-2 min-h-[60px]">
+            {settings.backgrounds.map((bg, i) => (
+                <div key={i} className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden border border-black/10 dark:border-white/20">
+                    {bg.type === 'color' ? (
+                       <div className="w-full h-full" style={{ backgroundColor: bg.url }} />
+                    ) : bg.type === 'image' ? (
+                        <img src={bg.url} className="w-full h-full object-cover" alt="bg" />
+                    ) : (
+                        <video src={bg.url} className="w-full h-full object-cover" />
+                    )}
+                    <button 
+                       onClick={() => setSettings(prev => ({ ...prev, backgrounds: prev.backgrounds.filter((_, idx) => idx !== i) }))}
+                       className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]"
+                    >×</button>
+                </div>
+            ))}
         </div>
 
         <input 
@@ -160,8 +178,23 @@ export default function Sidebar({ settings, setSettings, surahs, reciters, trans
           onClick={() => fileInputRef.current?.click()}
           className="flex items-center justify-center gap-2 w-full py-2.5 glass-surface hover:bg-black/5 dark:hover:bg-white/20 text-gray-600 dark:text-gray-300 text-xs rounded-lg border border-dashed border-black/20 dark:border-white/30 transition-colors"
         >
-          <FileUp size={14} /> <span className="uppercase text-[10px] font-bold">رفع ملف جديد</span>
+          <FileUp size={14} /> <span className="uppercase text-[10px] font-bold">رفع ملف جديد (إضافة مقطع)</span>
         </button>
+
+        <div>
+             <label className="flex justify-between text-[10px] text-gray-500 dark:text-gray-400 mb-2">
+               <span>خافتية الخلفية (Opacity)</span>
+               <span>{settings.backgroundOpacity}%</span>
+             </label>
+             <input 
+                 type="range" 
+                 min={10} 
+                 max={100} 
+                 value={settings.backgroundOpacity}
+                 onChange={(e) => setSettings(prev => ({ ...prev, backgroundOpacity: Number(e.target.value) }))}
+                 className="w-full accent-primary h-1 bg-black/10 dark:bg-white/20 rounded-lg appearance-none cursor-pointer"
+             />
+        </div>
       </section>
 
       {/* 3. السورة والآيات */}
@@ -244,8 +277,52 @@ export default function Sidebar({ settings, setSettings, surahs, reciters, trans
           onClick={() => audioInputRef.current?.click()}
           className="flex items-center justify-center gap-2 w-full py-2 bg-gradient-to-l from-primary/20 to-primary/5 hover:from-primary/30 hover:to-primary/10 text-primary text-xs rounded-lg border border-primary/30 transition-colors shadow-sm"
         >
-          <Mic size={14} /> <span className="uppercase text-[10px] font-bold">تزامن ملف صوتي مخصص</span>
+          <Mic size={14} /> <span className="uppercase text-[10px] font-bold">رفع صوت مخصص</span>
         </button>
+
+        {settings.reciterId === 'custom' && settings.customAudioUrl && (
+            <div className="flex flex-col gap-2 p-3 border border-black/10 dark:border-white/20 rounded-lg bg-black/5 dark:bg-white/[0.05]">
+                <button 
+                    onClick={() => {
+                        // Simulate Local AI Transcription
+                        alert('جاري تشغيل نموذج Whisper المحلي لاستخراج النصوص... (محاكاة)');
+                        setTimeout(() => {
+                           // Generate mock timestamps
+                           const numAyahs = settings.endAyah - settings.startAyah + 1;
+                           const t: number[] = [];
+                           for (let i=0; i<numAyahs; i++) t.push(i * 3.5); // fake timing
+                           setSettings(prev => ({ ...prev, customAudioTimestamps: t }));
+                        }, 1000);
+                    }}
+                    className="w-full bg-primary/90 hover:bg-primary text-black font-bold text-[10px] py-1.5 rounded"
+                >
+                    استخراج النصوص (AI محلي)
+                </button>
+                
+                {settings.customAudioTimestamps.length > 0 && (
+                    <div className="text-[10px] space-y-1 mt-2 max-h-32 overflow-y-auto">
+                        <div className="text-gray-500 font-bold mb-1">محرر الخط الزمني (Timeline)</div>
+                        {settings.customAudioTimestamps.map((t, idx) => (
+                            <div key={idx} className="flex gap-2 items-center">
+                                <span className="text-gray-500 w-12 truncate dark:text-gray-400">آية {settings.startAyah + idx}</span>
+                                <input 
+                                   type="number" 
+                                   step="0.1"
+                                   value={t.toFixed(1)} 
+                                   onChange={(e) => {
+                                      const newT = [...settings.customAudioTimestamps];
+                                      newT[idx] = parseFloat(e.target.value) || 0;
+                                      setSettings(prev => ({ ...prev, customAudioTimestamps: newT }));
+                                   }}
+                                   className="w-full bg-white dark:bg-black/50 border border-black/10 dark:border-white/20 rounded px-1 text-center"
+                                />
+                                <span className="text-gray-400">ثانية</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        )}
       </section>
 
       {/* 5. النصوص والترجمة */}
@@ -317,6 +394,21 @@ export default function Sidebar({ settings, setSettings, surahs, reciters, trans
                         onChange={(e) => setSettings(prev => ({ ...prev, fontSize: Number(e.target.value) }))}
                         className="w-full accent-primary h-1 bg-black/10 dark:bg-white/20 rounded-lg appearance-none cursor-pointer"
                     />
+                </div>
+
+                <div>
+                     <label className="text-[10px] text-gray-500 dark:text-gray-400 block mb-2 flex justify-between">
+                       <span>عنصر الآية (عدد الكلمات المعروضة)</span>
+                       <span>{settings.wordsPerScreen === 0 ? 'الآية كاملة' : `${settings.wordsPerScreen} كلمة`}</span>
+                     </label>
+                     <input 
+                         type="range" 
+                         min={0} 
+                         max={15} 
+                         value={settings.wordsPerScreen}
+                         onChange={(e) => setSettings(prev => ({ ...prev, wordsPerScreen: Number(e.target.value) }))}
+                         className="w-full accent-primary h-1 bg-black/10 dark:bg-white/20 rounded-lg appearance-none cursor-pointer"
+                     />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 mt-2">

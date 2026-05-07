@@ -38,16 +38,24 @@ export interface BackgroundProps {
   url: string;
 }
 
+export interface WordTimestamp {
+  word: string;
+  timestamp: number;
+}
+
 export interface VideoSettings {
   aspectRatio: AspectRatio;
   borderRadius: number;
-  background: BackgroundProps;
+  backgrounds: BackgroundProps[]; // Array of backgrounds to play sequentially
+  backgroundOpacity: number; // 0 to 100
+  wordsPerScreen: number; // 0 means whole ayah, 1 means 1 word, 2 means 2 words, etc.
   surahNumber: number;
   startAyah: number;
   endAyah: number;
   reciterId: string;
   customAudioUrl: string | null;
   customAudioTimestamps: number[]; // e.g. start times for each ayah
+  customWordTimestamps: WordTimestamp[]; // For Word-by-word local AI sync
   translationId: string | null;
   
   // Advanced Text Styling

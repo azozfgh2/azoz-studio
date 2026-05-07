@@ -23,16 +23,20 @@ export default function App() {
   // Main video settings state
   const [settings, setSettings] = useState<VideoSettings>({
     aspectRatio: '9:16',
-    background: {
+    borderRadius: 0,
+    backgrounds: [{
       type: 'image',
       url: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=800&q=80'
-    },
+    }],
+    backgroundOpacity: 60,
+    wordsPerScreen: 0,
     surahNumber: 1, // Al-Fatiha
     startAyah: 1,
     endAyah: 7,
     reciterId: 'ar.alafasy', // Default to Mishary
     customAudioUrl: null,
     customAudioTimestamps: [],
+    customWordTimestamps: [],
     translationId: null, // No translation by default
     fontFamily: 'quran',
     customFontUrl: null,

@@ -13,6 +13,7 @@ interface PreviewCanvasProps {
 const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps>(({ settings, ayahs, isLoading }, ref) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentAyahIndex, setCurrentAyahIndex] = useState(0);
+  const [activeBgIndex, setActiveBgIndex] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const captureRef = useRef<HTMLDivElement>(null);
 
@@ -236,12 +237,14 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
              }
 
              // 1. Draw Background
-             if (settings.background.type === 'color') {
-                 ctx.globalAlpha = 1.0;
-                 ctx.fillStyle = settings.background.url;
+             const bgOpacity = settings.backgroundOpacity !== undefined ? settings.backgroundOpacity / 100 : 0.6;
+             if (settings.backgrounds[activeBgIndex]?.type === 'color') {
+                 ctx.globalAlpha = bgOpacity;
+                 ctx.fillStyle = settings.backgrounds[activeBgIndex].url;
                  ctx.fillRect(0, 0, finalWidth, finalHeight);
-             } else if (settings.background.type === 'image' && bgImgEl) {
-                 ctx.globalAlpha = 0.6;
+                 ctx.globalAlpha = 1.0;
+             } else if (settings.backgrounds[activeBgIndex]?.type === 'image' && bgImgEl) {
+                 ctx.globalAlpha = bgOpacity;
                  const scale = Math.max(finalWidth / bgImgEl.naturalWidth, finalHeight / bgImgEl.naturalHeight);
                  const w = bgImgEl.naturalWidth * scale;
                  const h = bgImgEl.naturalHeight * scale;
@@ -249,8 +252,8 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
                  const y = (finalHeight - h) / 2;
                  ctx.drawImage(bgImgEl, x, y, w, h);
                  ctx.globalAlpha = 1.0;
-             } else if (settings.background.type === 'video' && bgVideoEl) {
-                 ctx.globalAlpha = 0.6;
+             } else if (settings.backgrounds[activeBgIndex]?.type === 'video' && bgVideoEl) {
+                 ctx.globalAlpha = bgOpacity;
                  const scale = Math.max(finalWidth / bgVideoEl.videoWidth, finalHeight / bgVideoEl.videoHeight);
                  const w = bgVideoEl.videoWidth * scale;
                  const h = bgVideoEl.videoHeight * scale;
@@ -484,14 +487,21 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
       >
         {/* Background Layer */}
         <div className="absolute inset-0 z-0 pointer-events-none">
-          {settings.background.type === 'color' && (
-            <div className="w-full h-full" style={{ backgroundColor: settings.background.url }} />
+          {settings.backgrounds[activeBgIndex]?.type === 'color' && (
+            <div className="w-full h-full" style={{ backgroundColor: settings.backgrounds[activeBgIndex].url, opacity: settings.backgroundOpacity / 100 }} />
           )}
-          {settings.background.type === 'image' && (
-             <img src={settings.background.url} alt="bg" className="w-full h-full object-cover opacity-60" />
+          {settings.backgrounds[activeBgIndex]?.type === 'image' && (
+             <img src={settings.backgrounds[activeBgIndex].url} alt="bg" className="w-full h-full object-cover" style={{ opacity: settings.backgroundOpacity / 100 }} />
           )}
-          {settings.background.type === 'video' && (
-            <video src={settings.background.url} autoPlay loop muted className="w-full h-full object-cover opacity-60" />
+          {settings.backgrounds[activeBgIndex]?.type === 'video' && (
+            <video 
+              src={settings.backgrounds[activeBgIndex].url} 
+              autoPlay 
+              muted 
+              onEnded={() => setActiveBgIndex((prev) => (prev + 1) % settings.backgrounds.length)}
+              className="w-full h-full object-cover" 
+              style={{ opacity: settings.backgroundOpacity / 100 }} 
+            />
           )}
           {/* Overlay to ensure text readability */}
           <div className="absolute inset-0 bg-black/40 mix-blend-multiply" />
