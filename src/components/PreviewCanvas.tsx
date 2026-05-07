@@ -63,28 +63,56 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
       alert("جاري تحضير موارد التصدير (الصوتيات والخلفيات)... يرجى عدم إغلاق النافذة.");
       
       let audioSources: string[] = [];
-      if (settings.reciterId === 'custom' && settings.customAudioUrl) {
+      const fetchAudioBlobUrl = async (url: string) => {
          try {
-             const res = await fetch(settings.customAudioUrl);
+             const res = await fetch(url);
+             if (!res.ok) throw new Error("Fetch failed");
              const blob = await res.blob();
-             audioSources.push(URL.createObjectURL(blob));
+             return URL.createObjectURL(blob);
          } catch {
-             audioSources.push(settings.customAudioUrl);
+             try {
+                // Secondary proxy
+                const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+                const resProxy = await fetch(proxyUrl);
+                if (!resProxy.ok) throw new Error("Proxy fetch failed");
+                const blobProxy = await resProxy.blob();
+                return URL.createObjectURL(blobProxy);
+             } catch (e) {
+                // Ignore proxy fetch error and fallback to original URL
+                return url; // ultimate fallback
+             }
          }
+      };
+
+      if (settings.reciterId === 'custom' && settings.customAudioUrl) {
+         audioSources.push(settings.customAudioUrl); // custom is already blob or local
       } else {
          for (const ayah of ayahs) {
-            try {
-               const res = await fetch(ayah.audioUrl);
-               const blob = await res.blob();
-               audioSources.push(URL.createObjectURL(blob));
-            } catch {
-               audioSources.push(ayah.audioUrl);
-            }
+            audioSources.push(await fetchAudioBlobUrl(ayah.audioUrl));
          }
       }
 
       const exportAudio = new Audio();
-      exportAudio.crossOrigin = "anonymous";
+      const playAudio = async (src: string) => {
+          // If it's our own blob or CORS proxy, we can safely use anonymous
+          // If it's a raw URL fallback, anonymous might break it, so we remove it.
+          if (src.startsWith('blob:')) {
+              exportAudio.crossOrigin = "anonymous";
+          } else {
+              exportAudio.removeAttribute("crossOrigin");
+          }
+          exportAudio.src = src;
+          
+          try {
+             await exportAudio.play();
+          } catch (err) {
+             console.error("Audio play failed in export", err);
+             // Fallback: clear src and just pause so recording can still proceed without audio
+             exportAudio.removeAttribute("crossOrigin");
+             exportAudio.src = src;
+             await exportAudio.play().catch(e => console.error("Final audio fallback failed", e));
+          }
+      };
       
       let audioCtx: AudioContext | null = null;
       let dest: MediaStreamAudioDestinationNode | null = null;
@@ -144,16 +172,9 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
       let isRecording = true;
       let ayahIdx = 0;
 
-      exportAudio.src = audioSources[0] || '';
-      
-      const playPromise = exportAudio.play();
-      if (playPromise) {
-          playPromise.catch(e => {
-              console.error("Audio play failed in export", e);
-              // Fallback to visual only
-              console.log("Exporting visually without audio...");
-          });
-      }
+      setIsPlaying(true);
+      setCurrentAyahIndex(0);
+      playAudio(audioSources[0] || '');
 
       exportAudio.onended = () => {
           if (settings.reciterId === 'custom') {
@@ -162,8 +183,8 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
           } else {
               ayahIdx++;
               if (ayahIdx < ayahs.length) {
-                  exportAudio.src = audioSources[ayahIdx];
-                  exportAudio.play().catch(() => {});
+                  setCurrentAyahIndex(ayahIdx);
+                  playAudio(audioSources[ayahIdx]);
               } else {
                   isRecording = false;
                   recorder.stop();
@@ -193,6 +214,7 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
              }
              
              // 2. Draw Overlay
+             ctx.globalAlpha = 1;
              ctx.fillStyle = 'rgba(0,0,0,0.4)';
              ctx.fillRect(0, 0, finalWidth, finalHeight);
              
@@ -200,13 +222,18 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
              if (ayahIdx < ayahs.length) {
                  const currentAyah = ayahs[ayahIdx];
                  
-                 // Ayah Text
-                 const mainFontSize = finalWidth * 0.08 * (settings.fontSize / 32);
+                 ctx.globalAlpha = settings.textOpacity / 100;
+                 ctx.shadowColor = settings.textShadowColor;
+                 ctx.shadowBlur = settings.textShadowBlur * pixelRatio * 2;
                  ctx.fillStyle = settings.textColor;
                  ctx.textAlign = 'center';
                  ctx.textBaseline = 'middle';
                  
+                 // Ayah Text
+                 const mainFontSize = finalWidth * 0.08 * (settings.fontSize / 32);
                  const fontFamily = settings.fontFamily === 'quran' ? 'Amiri Quran' : settings.fontFamily === 'cairo' ? 'Cairo' : 'Arial';
+                 
+                 // If quran font, we need to load it (which takes time), so 'Amiri Quran' should be available.
                  ctx.font = `bold ${mainFontSize}px "${fontFamily}", serif`;
                  
                  const textWithNumber = `${currentAyah.text} ﴿${currentAyah.numberInSurah.toLocaleString('ar-EG')}﴾`;
@@ -214,12 +241,15 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
                  
                  // Translation Text
                  if (settings.showTranslation && currentAyah.translationText) {
+                     ctx.globalAlpha = (settings.textOpacity / 100) * 0.8;
                      const transFontSize = finalWidth * 0.04 * (settings.fontSize / 32);
-                     ctx.fillStyle = `color-mix(in srgb, ${settings.textColor} 80%, transparent)`;
                      ctx.font = `${transFontSize}px "Cairo", Arial, sans-serif`;
                      wrapText(ctx, currentAyah.translationText, finalWidth / 2, finalHeight / 2 + (finalHeight * 0.15), finalWidth * 0.8, transFontSize * 1.5);
                  }
              }
+
+             ctx.globalAlpha = 1;
+             ctx.shadowBlur = 0;
 
          } catch(e) {
              // Ignore frame drop

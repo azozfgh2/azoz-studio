@@ -461,10 +461,10 @@ export default function Sidebar({ settings, setSettings, surahs, reciters, trans
                     onChange={(e) => setSettings(prev => ({ ...prev, fps: Number(e.target.value) as any }))}
                     className="w-full glass-surface border border-black/10 dark:border-white/20 rounded-lg py-2 pl-4 pr-10 text-sm focus:outline-none focus:border-primary text-gray-800 dark:text-gray-100 appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M5%208l5%205%205-5%22%20stroke%3D%22%23666%22%20stroke-width%3D%222%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E')] bg-[position:left_0.5rem_center] bg-no-repeat"
                 >
-                    <option value={24} className="bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-gray-200">24 fps</option>
-                    <option value={30} className="bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-gray-200">30 fps</option>
-                    <option value={60} className="bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-gray-200">60 fps</option>
-                    <option value={120} className="bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-gray-200">120 fps</option>
+                    <option value={24} className="bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-gray-200">24 fps (سينمائي)</option>
+                    <option value={30} className="bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-gray-200">30 fps (قياسي)</option>
+                    <option value={60} className="bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-gray-200">60 fps (سلس)</option>
+                    <option value={120} className="bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-gray-200">120 fps (فائق السلاسة)</option>
                 </select>
             </div>
         </div>
