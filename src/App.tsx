@@ -6,6 +6,7 @@ import { getSurahs, getReciters, getTranslations, getAyahsData } from './lib/api
 import { Sun, Moon, Download } from 'lucide-react';
 
 export default function App() {
+  const [currentView, setCurrentView] = useState<'editor' | 'library'>('editor');
   const [surahs, setSurahs] = useState<Surah[]>([]);
   const [reciters, setReciters] = useState<Reciter[]>([]);
   const [translations, setTranslations] = useState<TranslationEdition[]>([]);
@@ -187,8 +188,8 @@ export default function App() {
               {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             <div className="flex bg-black/5 dark:bg-white/5 rounded-lg p-1 border border-black/10 dark:border-white/10">
-              <button className="px-4 py-1.5 text-xs font-medium rounded-md bg-white dark:bg-primary shadow text-primary dark:text-black">المحرر</button>
-              <button className="px-4 py-1.5 text-xs font-medium rounded-md text-gray-600 dark:text-white/60 hover:text-black dark:hover:text-white transition-colors" onClick={() => alert("في النسخة الكاملة، ينقلك هذا الزر لمكتبة الملفات والمشاريع المحفوظة.")}>المكتبة</button>
+              <button className={`px-4 py-1.5 text-xs font-medium rounded-md ${currentView === 'editor' ? 'bg-white dark:bg-primary shadow text-primary dark:text-black' : 'text-gray-600 dark:text-white/60 hover:text-black dark:hover:text-white transition-colors'}`} onClick={() => setCurrentView('editor')}>المحرر</button>
+              <button className={`px-4 py-1.5 text-xs font-medium rounded-md ${currentView === 'library' ? 'bg-white dark:bg-primary shadow text-primary dark:text-black' : 'text-gray-600 dark:text-white/60 hover:text-black dark:hover:text-white transition-colors'}`} onClick={() => setCurrentView('library')}>المكتبة</button>
             </div>
             <button 
               className="flex items-center gap-2 px-6 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-xs font-bold rounded-full hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors shadow-lg" 
@@ -201,29 +202,52 @@ export default function App() {
         </header>
 
         <div className="flex-1 flex overflow-hidden">
-          <Sidebar 
-            settings={settings} 
-            setSettings={setSettings} 
-            surahs={surahs}
-            reciters={reciters}
-            translations={translations.filter(t => ['en', 'ur', 'fr', 'es', 'id'].includes(t.language))}
-          />
-          <main className="flex-1 overflow-y-auto relative z-0">
-            <div className="min-h-full flex flex-col p-4 lg:p-8">
-              {/* Spacer for safe vertical centering */}
-              <div className="flex-1" aria-hidden="true"></div>
-              <div className="w-full shrink-0">
-                <PreviewCanvas 
-                   ref={canvasRef}
-                   settings={settings}
-                   ayahs={ayahsToPlay}
-                   isLoading={isLoadingAyahs}
-                />
-              </div>
-              {/* Spacer for safe vertical centering */}
-              <div className="flex-1" aria-hidden="true"></div>
-            </div>
-          </main>
+          {currentView === 'editor' ? (
+            <>
+              <Sidebar 
+                settings={settings} 
+                setSettings={setSettings} 
+                surahs={surahs}
+                reciters={reciters}
+                translations={translations.filter(t => ['en', 'ur', 'fr', 'es', 'id'].includes(t.language))}
+              />
+              <main className="flex-1 overflow-y-auto relative z-0">
+                <div className="min-h-full flex flex-col p-4 lg:p-8">
+                  {/* Spacer for safe vertical centering */}
+                  <div className="flex-1" aria-hidden="true"></div>
+                  <div className="w-full shrink-0">
+                    <PreviewCanvas 
+                       ref={canvasRef}
+                       settings={settings}
+                       ayahs={ayahsToPlay}
+                       isLoading={isLoadingAyahs}
+                    />
+                  </div>
+                  {/* Spacer for safe vertical centering */}
+                  <div className="flex-1" aria-hidden="true"></div>
+                </div>
+              </main>
+            </>
+          ) : (
+             <main className="flex-1 overflow-y-auto p-4 lg:p-8 relative z-0 w-full bg-black/5 dark:bg-black/20">
+               <div className="max-w-5xl mx-auto glass p-8 rounded-2xl border border-black/10 dark:border-white/10 shadow-2xl">
+                   <h2 className="text-3xl font-black mb-4 font-cairo">مكتبة المشاريع</h2>
+                   <p className="text-gray-600 dark:text-gray-400 font-medium leading-relaxed">سيتم حفظ الفيديوهات السابقة التي قمت بإنشائها والإعدادات الخاصة بها هنا، لتتمكن من التعديل عليها أو إعادة تصديرها لاحقاً. (سيتم توفير هذه الميزة قريباً)</p>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mt-12">
+                       <div className="aspect-[9/16] bg-black/5 dark:bg-white/5 rounded-2xl border-2 border-dashed border-black/10 dark:border-white/10 flex flex-col items-center justify-center text-sm text-gray-500 gap-4">
+                          <Download size={32} className="opacity-20" />
+                          <span>تطبيق المعاينة 1</span>
+                       </div>
+                       <div className="aspect-[9/16] bg-black/5 dark:bg-white/5 rounded-2xl border-2 border-dashed border-black/10 dark:border-white/10 flex flex-col items-center justify-center text-sm text-gray-400 gap-4 opacity-50">
+                          <span>تطبيق المعاينة 2</span>
+                       </div>
+                       <div className="aspect-[9/16] bg-black/5 dark:bg-white/5 rounded-2xl border-2 border-dashed border-black/10 dark:border-white/10 flex flex-col items-center justify-center text-sm text-gray-400 gap-4 opacity-30">
+                          <span>تطبيق المعاينة 3</span>
+                       </div>
+                   </div>
+               </div>
+             </main>
+          )}
         </div>
       </div>
     </>
