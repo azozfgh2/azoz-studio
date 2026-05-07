@@ -25,10 +25,27 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
        return;
     }
     
+    // Create and resume AudioContext immediately synchronously or on first await cycle 
+    // to bypass browser user-gesture restrictions restrictions.
+    let audioCtx: AudioContext | null = null;
+    let dest: MediaStreamAudioDestinationNode | null = null;
+    const exportAudio = new Audio();
+    try {
+       audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+       await audioCtx.resume();
+       dest = audioCtx.createMediaStreamDestination();
+       const sourceNode = audioCtx.createMediaElementSource(exportAudio);
+       sourceNode.connect(audioCtx.destination); // For preview during export
+       sourceNode.connect(dest); // For media recorder
+    } catch (e) {
+       console.warn("Could not capture audio natively", e);
+    }
+    
     setIsExporting(true);
     setExportProgress(0);
     
     try {
+      await document.fonts.ready;
       if (!captureRef.current || !audioRef.current) throw new Error("Missing refs");
 
       const width = document.body.clientWidth > 720 ? 720 : 480;
@@ -66,20 +83,26 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
       const fetchAudioBlobUrl = async (url: string) => {
          try {
              const res = await fetch(url);
-             if (!res.ok) throw new Error("Fetch failed");
+             if (!res.ok) throw new Error("Direct fetch failed");
              const blob = await res.blob();
              return URL.createObjectURL(blob);
          } catch {
              try {
-                // Secondary proxy
-                const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
-                const resProxy = await fetch(proxyUrl);
-                if (!resProxy.ok) throw new Error("Proxy fetch failed");
-                const blobProxy = await resProxy.blob();
-                return URL.createObjectURL(blobProxy);
-             } catch (e) {
-                // Ignore proxy fetch error and fallback to original URL
-                return url; // ultimate fallback
+                 const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+                 const res = await fetch(proxyUrl);
+                 if (!res.ok) throw new Error("Proxy 1 failed");
+                 const blob = await res.blob();
+                 return URL.createObjectURL(blob);
+             } catch {
+                 try {
+                    const proxyUrl2 = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+                    const resProxy = await fetch(proxyUrl2);
+                    if (!resProxy.ok) throw new Error("Proxy 2 failed");
+                    const blobProxy = await resProxy.blob();
+                    return URL.createObjectURL(blobProxy);
+                 } catch (e) {
+                    return url; // ultimate fallback
+                 }
              }
          }
       };
@@ -92,10 +115,7 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
          }
       }
 
-      const exportAudio = new Audio();
       const playAudio = async (src: string) => {
-          // If it's our own blob or CORS proxy, we can safely use anonymous
-          // If it's a raw URL fallback, anonymous might break it, so we remove it.
           if (src.startsWith('blob:')) {
               exportAudio.crossOrigin = "anonymous";
           } else {
@@ -114,18 +134,6 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
           }
       };
       
-      let audioCtx: AudioContext | null = null;
-      let dest: MediaStreamAudioDestinationNode | null = null;
-      try {
-         audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-         dest = audioCtx.createMediaStreamDestination();
-         const sourceNode = audioCtx.createMediaElementSource(exportAudio);
-         sourceNode.connect(audioCtx.destination);
-         sourceNode.connect(dest);
-      } catch (e) {
-         console.warn("Could not capture audio natively", e);
-      }
-
       const fps = settings.fps || 60;
       const stream = canvas.captureStream(fps);
       if (dest) {
@@ -202,13 +210,29 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
          try {
              // 1. Draw Background
              if (settings.background.type === 'color') {
+                 ctx.globalAlpha = 1.0;
                  ctx.fillStyle = settings.background.url;
                  ctx.fillRect(0, 0, finalWidth, finalHeight);
              } else if (settings.background.type === 'image' && bgImgEl) {
-                 ctx.drawImage(bgImgEl, 0, 0, finalWidth, finalHeight);
+                 ctx.globalAlpha = 0.6;
+                 const scale = Math.max(finalWidth / bgImgEl.naturalWidth, finalHeight / bgImgEl.naturalHeight);
+                 const w = bgImgEl.naturalWidth * scale;
+                 const h = bgImgEl.naturalHeight * scale;
+                 const x = (finalWidth - w) / 2;
+                 const y = (finalHeight - h) / 2;
+                 ctx.drawImage(bgImgEl, x, y, w, h);
+                 ctx.globalAlpha = 1.0;
              } else if (settings.background.type === 'video' && bgVideoEl) {
-                 ctx.drawImage(bgVideoEl, 0, 0, finalWidth, finalHeight);
+                 ctx.globalAlpha = 0.6;
+                 const scale = Math.max(finalWidth / bgVideoEl.videoWidth, finalHeight / bgVideoEl.videoHeight);
+                 const w = bgVideoEl.videoWidth * scale;
+                 const h = bgVideoEl.videoHeight * scale;
+                 const x = (finalWidth - w) / 2;
+                 const y = (finalHeight - h) / 2;
+                 ctx.drawImage(bgVideoEl, x, y, w, h);
+                 ctx.globalAlpha = 1.0;
              } else {
+                 ctx.globalAlpha = 1.0;
                  ctx.fillStyle = '#000';
                  ctx.fillRect(0, 0, finalWidth, finalHeight);
              }
@@ -234,7 +258,8 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
                  const fontFamily = settings.fontFamily === 'quran' ? 'Amiri Quran' : settings.fontFamily === 'cairo' ? 'Cairo' : 'Arial';
                  
                  // If quran font, we need to load it (which takes time), so 'Amiri Quran' should be available.
-                 ctx.font = `bold ${mainFontSize}px "${fontFamily}", serif`;
+                 // Amiri Quran does not support bold, using bold causes fallback to Arial.
+                 ctx.font = fontFamily === 'Amiri Quran' ? `${mainFontSize}px "${fontFamily}", serif` : `bold ${mainFontSize}px "${fontFamily}", serif`;
                  
                  const textWithNumber = `${currentAyah.text} ﴿${currentAyah.numberInSurah.toLocaleString('ar-EG')}﴾`;
                  wrapText(ctx, textWithNumber, finalWidth / 2, finalHeight / 2 - (finalHeight * 0.05), finalWidth * 0.8, mainFontSize * 1.5);
