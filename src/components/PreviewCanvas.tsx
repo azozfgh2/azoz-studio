@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } f
 import { VideoSettings, AyahData } from '../types';
 import { Play, Pause, Download, Volume2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 
 interface PreviewCanvasProps {
   settings: VideoSettings;
@@ -20,21 +20,21 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
     exportVideo: async () => {
       if (!captureRef.current) return;
       try {
-        // Simple image snapshot export for this preview
-        const canvas = await html2canvas(captureRef.current, {
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: null,
-          scale: 2 // Higher quality
+        const dataUrl = await toPng(captureRef.current, {
+          quality: 1,
+          pixelRatio: 2,
+          filter: (node) => {
+            // Filter out any elements we don't want or handle specific exceptions
+            return true;
+          }
         });
-        const image = canvas.toDataURL("image/png");
         const link = document.createElement('a');
         link.download = `quran-video-frame-${settings.surahNumber}-${settings.startAyah}.png`;
-        link.href = image;
+        link.href = dataUrl;
         link.click();
       } catch (err) {
         console.error("Export failed", err);
-        alert("فشل التصدير. يرجى المحاولة مرة أخرى.");
+        alert("فشل التصدير بسبب محتوى خارجي (CORS). يرجى تغيير الخلفية أو المحاولة مرة أخرى.");
       }
     }
   }));
@@ -176,7 +176,26 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
             </button>
             <button 
                 className="flex items-center gap-2 glass-btn px-4 py-2 rounded-lg font-bold transition-colors text-xs"
-                onClick={() => alert(`في النسخة الكاملة، سيتم تصدير الفيديو بدقة ${settings.resolution} ومعدل إطارات ${settings.fps}fps.`)}
+                onClick={async () => {
+                  if (ref && 'current' in ref && ref.current) {
+                    ref.current.exportVideo();
+                  } else {
+                    // Fallback to internal call
+                    if (!captureRef.current) return;
+                    try {
+                      const dataUrl = await toPng(captureRef.current, { quality: 1, pixelRatio: 2 });
+                      const link = document.createElement('a');
+                      link.download = `quran-video-frame-${settings.surahNumber}-${settings.startAyah}.png`;
+                      link.href = dataUrl;
+                      link.click();
+                      alert('ملاحظة: هذا تصدير لصورة (Frame) من الفيديو. التصدير الفعلي للفيديو غير مدعوم بالكامل في المتصفح.');
+                    } catch (err) {
+                      console.error("Export failed", err);
+                      alert("فشل التصدير بسبب محتوى خارجي (CORS). يرجى تغيير الخلفية أو المحاولة مرة أخرى.");
+                    }
+                  }
+                }}
+                title="تصدير كصورة (إطار)"
                 >
                 <Download size={14} />
                 تصدير
