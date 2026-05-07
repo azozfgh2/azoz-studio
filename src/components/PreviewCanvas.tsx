@@ -123,12 +123,11 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
         const bg = settings.backgrounds[isExport ? 0 : activeBgIndex]; // Using activeBgIndex
         if (bg) {
           ctx.save();
-          ctx.globalAlpha = settings.backgroundOpacity !== undefined ? settings.backgroundOpacity / 100 : 0.6;
-          
           if (bg.type === 'color') {
              ctx.fillStyle = bg.url;
              ctx.fillRect(0, 0, width, height);
           } else {
+             ctx.globalAlpha = settings.backgroundOpacity !== undefined ? settings.backgroundOpacity / 100 : 0.6;
              const el = await getMediaElement({ type: bg.type, url: bg.url });
              if (el) {
                  const elWidth = bg.type === 'video' ? (el as HTMLVideoElement).videoWidth : (el as HTMLImageElement).naturalWidth;
@@ -143,18 +142,18 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
                  } else {
                      ctx.drawImage(el, 0, 0, width, height);
                  }
-                 
-                 // If it is playing and exporting, maybe scrub video time, but for legacy backgrounds we might just let it play or just use 0 during export if we don't have global sync
              }
           }
           
           ctx.restore();
           
-          // Overlay to ensure text readability
-          ctx.save();
-          ctx.fillStyle = 'rgba(0,0,0,0.4)';
-          ctx.fillRect(0, 0, width, height);
-          ctx.restore();
+          // Overlay to ensure text readability only for images/videos
+          if (bg.type !== 'color') {
+             ctx.save();
+             ctx.fillStyle = 'rgba(0,0,0,0.4)';
+             ctx.fillRect(0, 0, width, height);
+             ctx.restore();
+          }
         }
     }
 
@@ -237,8 +236,8 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
   }, [currentTime, settings, ayahs, currentAyahIndex, isPlaying]);
 
   const exportVideoLogic = async () => {
-    if (ayahs.length === 0) {
-       alert('الرجاء اختيار السورة والآيات أولاً.');
+    if (ayahs.length === 0 && (!settings.items || settings.items.length === 0)) {
+       alert('الرجاء اختيار السورة والآيات أو إضافة وسائط للبدء.');
        return;
     }
     
@@ -247,6 +246,7 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
     let audioCtx: AudioContext | null = null;
     let dest: MediaStreamAudioDestinationNode | null = null;
     const exportAudio = new Audio();
+    exportAudio.crossOrigin = "anonymous";
     try {
        audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
        await audioCtx.resume();
@@ -427,9 +427,18 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
           }
       };
 
-      setIsPlaying(true);
+      setIsPlaying(false);
       setCurrentAyahIndex(0);
-      playAudio(audioSources[0] || '');
+      
+      if (audioSources.length > 0) {
+         playAudio(audioSources[0]);
+      } else {
+         // No audio sources, wait for duration and stop
+         setTimeout(() => {
+             isRecording = false;
+             if (recorder.state === 'recording') recorder.stop();
+         }, (settings.duration || 10) * 1000);
+      }
 
       let startGlobalTime = performance.now();
       let lastAudioTime = 0;
@@ -439,20 +448,28 @@ const PreviewCanvas = forwardRef<{ exportVideo: () => void }, PreviewCanvasProps
          if (!isRecording) return;
          
          let globalTime = 0;
-         if (settings.reciterId === 'custom') {
-             globalTime = exportAudio.currentTime || 0;
-         } else {
-             // For standard sequential ayahs, we approximate global time by keeping track of played time
-             if (exportAudio.currentTime < lastAudioTime) {
-                 ayahCumulativeDuration += lastAudioTime;
+         
+         if (audioSources.length > 0) {
+             if (settings.reciterId === 'custom') {
+                 globalTime = exportAudio.currentTime || 0;
+             } else {
+                 if (exportAudio.currentTime < lastAudioTime) {
+                     ayahCumulativeDuration += lastAudioTime;
+                 }
+                 lastAudioTime = exportAudio.currentTime;
+                 globalTime = ayahCumulativeDuration + exportAudio.currentTime;
              }
-             lastAudioTime = exportAudio.currentTime;
-             globalTime = ayahCumulativeDuration + exportAudio.currentTime;
+         } else {
+             globalTime = (performance.now() - startGlobalTime) / 1000;
          }
 
          await renderCanvas(ctx, finalWidth, finalHeight, globalTime, true);
          
-         setExportProgress(Math.floor((ayahIdx / ayahs.length) * 100));
+         if (audioSources.length > 0) {
+             setExportProgress(Math.floor((ayahIdx / ayahs.length) * 100));
+         } else {
+             setExportProgress(Math.floor((globalTime / (settings.duration || 10)) * 100));
+         }
          
          requestAnimationFrame(drawFrame);
       };

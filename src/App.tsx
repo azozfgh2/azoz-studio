@@ -215,12 +215,14 @@ export default function App() {
             >
               {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            <div className="flex bg-black/5 dark:bg-white/5 rounded-xl p-1 shadow-inner border border-black/5 dark:border-white/5">
-              <button className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${currentView === 'editor' ? 'glass-btn border-none shadow-[0_4px_12px_rgba(0,0,0,0.05)] text-primary dark:text-primary transform scale-[1.02]' : 'text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white'}`} onClick={() => setCurrentView('editor')}>المحرر</button>
-              <button className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${currentView === 'library' ? 'glass-btn border-none shadow-[0_4px_12px_rgba(0,0,0,0.05)] text-primary dark:text-primary transform scale-[1.02]' : 'text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white'}`} onClick={() => setCurrentView('library')}>المكتبة</button>
+            <div className="flex bg-black/5 dark:bg-white/5 rounded-xl p-1 shadow-inner border border-black/5 dark:border-white/5 relative">
+              <div className="absolute inset-y-1 w-1/2 bg-white dark:bg-[#3f3f46] rounded-lg shadow-sm border border-black/5 dark:border-white/5 transition-transform duration-300 ease-in-out z-0" style={{ transform: currentView === 'library' ? 'translateX(-100%)' : 'translateX(0)' }}></div>
+              
+              <button className={`relative z-10 px-6 py-2 text-xs font-bold rounded-lg transition-colors duration-300 ${currentView === 'editor' ? 'text-primary dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}`} onClick={() => setCurrentView('editor')}>المحرر</button>
+              <button className={`relative z-10 px-6 py-2 text-xs font-bold rounded-lg transition-colors duration-300 ${currentView === 'library' ? 'text-primary dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}`} onClick={() => setCurrentView('library')}>المكتبة</button>
             </div>
             <button 
-              className="flex items-center gap-2 px-6 py-2.5 bg-primary text-black text-xs font-black rounded-xl hover:bg-primary-dark transition-all shadow-[0_4px_16px_rgba(197,160,89,0.4)] hover:shadow-[0_4px_20px_rgba(197,160,89,0.6)] transform hover:-translate-y-0.5 active:translate-y-0" 
+              className="flex items-center gap-2 px-6 py-2.5 bg-primary text-black text-xs font-black rounded-xl hover:bg-primary-dark transition-all shadow-[0_4px_16px_rgba(197,160,89,0.3)] hover:shadow-[0_6px_24px_rgba(197,160,89,0.5)] transform hover:-translate-y-0.5" 
               onClick={() => canvasRef.current?.exportVideo()}
             >
               <Download size={16} />
